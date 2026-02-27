@@ -282,6 +282,33 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
+            /* If identifier is longer than 20 characters, report error and
+               skip the rest of the alphanumeric sequence immediately.
+               Exception: keep splittable mixed lexemes (letters+digits+letters...)
+               for downstream splitting (e.g. endrecorb2c3endrecord). */
+            if(len > 20){
+                int firstDigitPos = -1;
+                int hasAlphaAfterDigit = 0;
+                for(int i = 0; i < len; i++){
+                    if(isNum((unsigned char)lexeme[i])){
+                        firstDigitPos = i;
+                        break;
+                    }
+                }
+                if(firstDigitPos >= 2){
+                    for(int j = firstDigitPos + 1; j < len; j++){
+                        if(isAlpha((unsigned char)lexeme[j])){
+                            hasAlphaAfterDigit = 1;
+                            break;
+                        }
+                    }
+                }
+                if(!(firstDigitPos >= 2 && hasAlphaAfterDigit)){
+                    appendErrorToTokenList(s, "Variable Identifier is longer than the prescribed length of 20 characters.");
+                    while(isAlphaNum(peekChar(s))) readChar(s);
+                    continue;
+                }
+            }
             /* Iteratively split mixed letter/digit lexemes into sensible tokens.
                Rules:
                - Parse runs of letters then optional run of digits, left-to-right.
@@ -468,18 +495,26 @@ TokenList scan(State *s){
                     if(sign == '+' || sign == '-')
                         lexeme[len++] = (char)readChar(s);
                     int digitsRead = 0;
+                    /* Read at most two exponent digits into the lexeme; leave any
+                       further digits unread so they form subsequent tokens. */
                     while(len < MAX_LEXEME_LEN - 1){
                         int digit = peekChar(s);
                         if(digit >= '0' && digit <= '9'){
-                            lexeme[len++] = (char)readChar(s);
-                            digitsRead++;
-                            continue;
+                            if(digitsRead < 2){
+                                lexeme[len++] = (char)readChar(s);
+                                digitsRead++;
+                                continue;
+                            }
+                            /* stop reading more digits here; leave them for next token */
+                            break;
                         }
                         break;
                     }
                     if(digitsRead == 0)
                         printLexerError("malformed exponent", s);
-                    continue;
+                    /* after reading exponent digits, stop numeric scanning so
+                       any extra digits remain for the next token */
+                    break;
                 }
 
                 if(isNum(next)){
