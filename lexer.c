@@ -76,7 +76,12 @@ void printError(const char *msg){
 }
 
 void printLexerError(const char *msg, State* s){
-    printf("[LEXER-ERROR] at line %d: %s\n", s->line, msg);
+    (void)msg;
+    (void)s;
+}
+
+static void printUnknownSymbol(State *s, const char *symbol){
+    printf("Line No %d: Error : Unknown Symbol %s\n", s->line, symbol);
 }
 
 int isSmallAlpha(char c){ return c >= 'a' && c <= 'z'; }
@@ -124,11 +129,6 @@ static void emitToken(State *s, TokenType type, const char *lexeme, size_t len){
     token.lexeme[copy] = '\0';
     token.lexemeSize = copy;
     appendToTokenList(token, &s->tokenList);
-}
-
-static void warnLongIdentifier(State *s, int len){
-    if(len > 20)
-        printf("Line %d Error: Variable Identifier is longer than the prescribed length of 20 characters.\n", s->line);
 }
 
 static int isFieldId(const char *lexeme){
@@ -260,24 +260,13 @@ TokenList scan(State *s){
         if(isAlpha(c)){
             char lexeme[MAX_LEXEME_LEN];
             int len = 0;
-            int seenDigit = 0;
-            int letterAfterDigit = 0;
-            int firstDigitIndex = -1;
 
             lexeme[len++] = (char)c;
             while(len < MAX_LEXEME_LEN - 1){
                 int next = peekChar(s);
                 if(next == EOF) break;
                 if(isAlpha(next) || isNum(next)){
-                    char ch = (char)readChar(s);
-                    if(isNum(ch)){
-                        if(firstDigitIndex < 0)
-                            firstDigitIndex = len;
-                        seenDigit = 1;
-                    } else if(seenDigit){
-                        letterAfterDigit = 1;
-                    }
-                    lexeme[len++] = ch;
+                    lexeme[len++] = (char)readChar(s);
                     continue;
                 }
                 break;
@@ -295,21 +284,7 @@ TokenList scan(State *s){
                 else
                     type = TK_ID;
             }
-
-            if(seenDigit && !letterAfterDigit && firstDigitIndex > 0){
-                char prefix[MAX_LEXEME_LEN];
-                memcpy(prefix, lexeme, firstDigitIndex);
-                prefix[firstDigitIndex] = '\0';
-                TokenType prefixType = isFieldId(prefix) ? TK_FIELDID : TK_ID;
-                warnLongIdentifier(s, firstDigitIndex);
-                emitToken(s, prefixType, prefix, firstDigitIndex);
-                const char *digits = lexeme + firstDigitIndex;
-                emitToken(s, TK_NUM, digits, len - firstDigitIndex);
-            } else {
-                if(type == TK_ID || type == TK_FIELDID)
-                    warnLongIdentifier(s, len);
-                emitToken(s, type, lexeme, len);
-            }
+            emitToken(s, type, lexeme, len);
             continue;
         }
 
@@ -329,7 +304,6 @@ TokenList scan(State *s){
             TokenType type = TK_FUNID;
             if(strcmp(lexeme, "_main") == 0)
                 type = TK_MAIN;
-            warnLongIdentifier(s, len);
             emitToken(s, type, lexeme, len);
             continue;
         }
@@ -425,6 +399,11 @@ TokenList scan(State *s){
                     unreadChar(s, '-');
                 if(peekChar(s) == '='){
                     readChar(s);
+                    if(peekChar(s) == '>'){
+                        readChar(s);
+                        printUnknownSymbol(s, "<=>");
+                        break;
+                    }
                     emitToken(s, TK_LE, "<=", 2);
                     break;
                 }
@@ -441,22 +420,17 @@ TokenList scan(State *s){
                 break;
             }
             case '=': {
-                if(peekChar(s) == '='){
+                int next = peekChar(s);
+                if(next == '='){
                     readChar(s);
                     emitToken(s, TK_EQ, "==", 2);
+                } else if(next == '<'){
+                    printUnknownSymbol(s, "<=>");
                 } else {
-                    emitToken(s, TK_EQ, "=", 1);
+                    printUnknownSymbol(s, "=");
                 }
                 break;
             }
-            case '!':
-                if(peekChar(s) == '='){
-                    readChar(s);
-                    emitToken(s, TK_NE, "!=", 2);
-                } else {
-                    printLexerError("unrecognized symbol", s);
-                }
-                break;
             case '&': {
                 char lexeme[MAX_LEXEME_LEN];
                 int len = 0;
@@ -525,7 +499,7 @@ void printTokens(const char* filename){
     TokenList tl = scan(&s);
 
     for(int i=0;i<tl.size;i++){
-        printf("Line %d\tLexeme %s\tToken %s\n",
+        printf("Line no. %d\t Lexeme %s\t Token %s\n",
                tl.buf[i].lineNo,
                tl.buf[i].lexeme,
                tokenTypeToString(tl.buf[i].type));
