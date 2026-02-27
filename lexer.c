@@ -339,11 +339,37 @@ TokenList scan(State *s){
             while(len < MAX_LEXEME_LEN - 1){
                 int next = peekChar(s);
                 if(next == EOF) break;
+
                 if(next == '.' && !isReal){
-                    isReal = 1;
+                    /* consume '.' and read fractional digits */
                     lexeme[len++] = (char)readChar(s);
+                    int fracDigits = 0;
+                    while(len < MAX_LEXEME_LEN - 1){
+                        int pk = peekChar(s);
+                        if(pk >= '0' && pk <= '9'){
+                            lexeme[len++] = (char)readChar(s);
+                            fracDigits++;
+                            continue;
+                        }
+                        break;
+                    }
+                    if(fracDigits == 0){
+                        printLexerError("malformed real", s);
+                        break;
+                    }
+                    /* if another '.' follows, treat the prefix (e.g. 123.5) as unknown pattern */
+                    if(peekChar(s) == '.'){
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        /* do not consume the next '.' - let main loop handle it */
+                        break;
+                    }
+                    isReal = 1;
                     continue;
                 }
+
                 if(next == 'E' || next == 'e'){
                     isReal = 1;
                     lexeme[len++] = (char)readChar(s);
@@ -364,13 +390,26 @@ TokenList scan(State *s){
                         printLexerError("malformed exponent", s);
                     continue;
                 }
+
                 if(isNum(next)){
                     lexeme[len++] = (char)readChar(s);
                     continue;
                 }
                 break;
             }
-            emitToken(s, isReal ? TK_RNUM : TK_NUM, lexeme, len);
+            /* ensure null-termination */
+            if(len >= MAX_LEXEME_LEN) len = MAX_LEXEME_LEN - 1;
+            lexeme[len] = '\0';
+            /* if the last appended token was an Unknown pattern error, skip emitting a numeric token */
+            int emit = 1;
+            if(s->tokenList.size > 0){
+                Token *last = &s->tokenList.buf[s->tokenList.size-1];
+                if(last->type == TK_ERROR && last->errMsg && strstr(last->errMsg, "Unknown pattern <") == last->errMsg){
+                    emit = 0;
+                }
+            }
+            if(emit)
+                emitToken(s, isReal ? TK_RNUM : TK_NUM, lexeme, len);
             continue;
         }
 
@@ -447,26 +486,30 @@ TokenList scan(State *s){
                 lexeme[len++] = '&';
                 while(len < MAX_LEXEME_LEN - 1 && peekChar(s) == '&')
                     lexeme[len++] = (char)readChar(s);
-                if(len == 3)
-                    emitToken(s, TK_AND, lexeme, 3);
-                else
-                    printLexerError("invalid logical and", s);
+                    if(len == 3)
+                        emitToken(s, TK_AND, lexeme, 3);
+                    else
+                        printLexerError("Unknown pattern <&&>", s);
                 break;
             }
-            case '|':
-            case '@': {
-                char lexeme[MAX_LEXEME_LEN];
-                int len = 0;
-                char symbol = (char)c;
-                lexeme[len++] = symbol;
-                while(len < MAX_LEXEME_LEN - 1 && peekChar(s) == symbol)
-                    lexeme[len++] = (char)readChar(s);
-                if(len == 3)
-                    emitToken(s, TK_OR, lexeme, 3);
-                else
-                    printLexerError("invalid logical or", s);
-                break;
-            }
+                case '|': {
+                    /* Each '|' is an unknown symbol in this language (only @@@ is TK_OR) */
+                    printUnknownSymbol(s, "<|>");
+                    break;
+                }
+                case '@': {
+                    char lexeme[MAX_LEXEME_LEN];
+                    int len = 0;
+                    char symbol = (char)c;
+                    lexeme[len++] = symbol;
+                    while(len < MAX_LEXEME_LEN - 1 && peekChar(s) == symbol)
+                        lexeme[len++] = (char)readChar(s);
+                    if(len == 3)
+                        emitToken(s, TK_OR, lexeme, 3);
+                    else
+                        printLexerError("Unknown pattern <@@@>", s);
+                    break;
+                }
             default:
                 printLexerError("unrecognized symbol", s);
         }
@@ -512,9 +555,9 @@ void printTokens(const char* filename){
         Token *tk = &tl.buf[i];
         if(tk->type == TK_ERROR){
             if(tk->errMsg)
-                printf("Line No %d : Error : %s\n", tk->lineNo, tk->errMsg);
+                printf("Line No %d : Error: %s\n", tk->lineNo, tk->errMsg);
             else
-                printf("Line No %d : Error : (unknown)\n", tk->lineNo);
+                printf("Line No %d : Error: (unknown)\n", tk->lineNo);
         } else {
             printf("Line no. %d\t Lexeme %s\t Token %s\n",
                    tk->lineNo,
