@@ -282,6 +282,15 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
+            /* If identifier is longer than 20 characters, report error and
+               skip the rest of the alphanumeric sequence so no partial tokens
+               (like trailing numbers) are emitted for it. */
+            if(len > 20){
+                appendErrorToTokenList(s, "Variable Identifier is longer than the prescribed length of 20 characters.");
+                /* consume remaining alnum characters (if any) */
+                while(isAlphaNum(peekChar(s))) readChar(s);
+                continue;
+            }
             char lower[MAX_LEXEME_LEN];
             for(int i = 0; i < len; i++)
                 lower[i] = (char)tolower((unsigned char)lexeme[i]);
