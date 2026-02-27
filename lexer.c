@@ -537,6 +537,9 @@ TokenList scan(State *s){
                         printLexerError("Unknown pattern <@@@>", s);
                     break;
                 }
+            case '$':
+                printUnknownSymbol(s, "<$>");
+                break;
             default:
                 printLexerError("unrecognized symbol", s);
         }
