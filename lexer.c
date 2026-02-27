@@ -282,6 +282,15 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
+            /* If identifier is longer than 20 characters, report error and
+               skip the rest of the alphanumeric sequence so no partial tokens
+               (like trailing numbers) are emitted for it. */
+            if(len > 20){
+                appendErrorToTokenList(s, "Variable Identifier is longer than the prescribed length of 20 characters.");
+                /* consume remaining alnum characters (if any) */
+                while(isAlphaNum(peekChar(s))) readChar(s);
+                continue;
+            }
             char lower[MAX_LEXEME_LEN];
             for(int i = 0; i < len; i++)
                 lower[i] = (char)tolower((unsigned char)lexeme[i]);
@@ -357,6 +366,15 @@ TokenList scan(State *s){
                         printLexerError("malformed real", s);
                         break;
                     }
+                    /* If fractional part has exactly one digit, treat as Unknown pattern */
+                    if(fracDigits == 1){
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        /* do not consume any further characters for this token */
+                        break;
+                    }
                     /* if another '.' follows, treat the prefix (e.g. 123.5) as unknown pattern */
                     if(peekChar(s) == '.'){
                         lexeme[len] = '\0';
@@ -414,6 +432,15 @@ TokenList scan(State *s){
         }
 
         switch(c){
+            case '!': {
+                if(peekChar(s) == '='){
+                    readChar(s);
+                    emitToken(s, TK_NE, "!=", 2);
+                } else {
+                    printLexerError("unrecognized symbol", s);
+                }
+                break;
+            }
             case '+': emitToken(s, TK_PLUS, "+", 1); break;
             case '-': emitToken(s, TK_MINUS, "-", 1); break;
             case '*': emitToken(s, TK_MUL, "*", 1); break;
