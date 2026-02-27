@@ -121,7 +121,7 @@ Token lexer_next_token(Lexer* lexer) {
         strcpy(token.lexeme, "Invalid RUID");
         return token;
     }
-
+//test comment 
     // Numbers: digit+
     if (isdigit(lexer->curr_char)) {
         token.lexeme[i++] = lexer->curr_char;
