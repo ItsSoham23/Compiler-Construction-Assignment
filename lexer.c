@@ -291,6 +291,34 @@ TokenList scan(State *s){
                 while(isAlphaNum(peekChar(s))) readChar(s);
                 continue;
             }
+            /* Split pattern letters+digits (e.g. listb5) into TK_FIELDID + TK_NUM
+               when the prefix is all lowercase letters and prefix length > 1. */
+            int firstDigit = -1;
+            for(int i = 0; i < len; i++){
+                if(isNum((unsigned char)lexeme[i])){ firstDigit = i; break; }
+            }
+            if(firstDigit > 1){
+                int onlyDigits = 1;
+                for(int j = firstDigit; j < len; j++){
+                    if(!isNum((unsigned char)lexeme[j])){ onlyDigits = 0; break; }
+                }
+                if(onlyDigits){
+                    char prefix[MAX_LEXEME_LEN];
+                    int plen = firstDigit;
+                    memcpy(prefix, lexeme, plen);
+                    prefix[plen] = '\0';
+                    if(isFieldId(prefix)){
+                        emitToken(s, TK_FIELDID, prefix, plen);
+                        char suffix[MAX_LEXEME_LEN];
+                        int slen = len - firstDigit;
+                        memcpy(suffix, lexeme + firstDigit, slen);
+                        suffix[slen] = '\0';
+                        emitToken(s, TK_NUM, suffix, slen);
+                        continue;
+                    }
+                }
+            }
+
             char lower[MAX_LEXEME_LEN];
             for(int i = 0; i < len; i++)
                 lower[i] = (char)tolower((unsigned char)lexeme[i]);
