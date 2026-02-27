@@ -80,6 +80,7 @@ typedef struct Token{
     char lexeme[MAX_LEXEME_LEN];
     unsigned int lexemeSize;
     unsigned int lineNo;
+    char *errMsg;
 } Token;
 
 typedef struct TokenList{

@@ -75,13 +75,22 @@ void printError(const char *msg){
     perror(msg);
 }
 
+static void appendErrorToTokenList(State *s, const char *msg){
+    Token t = newToken(TK_ERROR, s);
+    size_t need = strlen(msg) + 1;
+    t.errMsg = malloc(need);
+    if(t.errMsg) memcpy(t.errMsg, msg, need);
+    appendToTokenList(t, &s->tokenList);
+}
+
 void printLexerError(const char *msg, State* s){
-    (void)msg;
-    (void)s;
+    appendErrorToTokenList(s, msg);
 }
 
 static void printUnknownSymbol(State *s, const char *symbol){
-    printf("Line No %d: Error : Unknown Symbol %s\n", s->line, symbol);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "Unknown Symbol %s", symbol);
+    appendErrorToTokenList(s, buf);
 }
 
 int isSmallAlpha(char c){ return c >= 'a' && c <= 'z'; }
@@ -148,6 +157,7 @@ Token newToken(TokenType type, State* s){
     t.lexeme[0] = '\0';
     t.lexemeSize = 0;
     t.lineNo = s->line;
+    t.errMsg = NULL;
     return t;
 }
 
@@ -499,10 +509,18 @@ void printTokens(const char* filename){
     TokenList tl = scan(&s);
 
     for(int i=0;i<tl.size;i++){
-        printf("Line no. %d\t Lexeme %s\t Token %s\n",
-               tl.buf[i].lineNo,
-               tl.buf[i].lexeme,
-               tokenTypeToString(tl.buf[i].type));
+        Token *tk = &tl.buf[i];
+        if(tk->type == TK_ERROR){
+            if(tk->errMsg)
+                printf("Line No %d : Error : %s\n", tk->lineNo, tk->errMsg);
+            else
+                printf("Line No %d : Error : (unknown)\n", tk->lineNo);
+        } else {
+            printf("Line no. %d\t Lexeme %s\t Token %s\n",
+                   tk->lineNo,
+                   tk->lexeme,
+                   tokenTypeToString(tk->type));
+        }
     }
 }
 
