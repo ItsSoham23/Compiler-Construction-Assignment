@@ -282,56 +282,101 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
-            /* If identifier is longer than 20 characters, report error and
-               skip the rest of the alphanumeric sequence so no partial tokens
-               (like trailing numbers) are emitted for it. */
-            if(len > 20){
-                appendErrorToTokenList(s, "Variable Identifier is longer than the prescribed length of 20 characters.");
-                /* consume remaining alnum characters (if any) */
-                while(isAlphaNum(peekChar(s))) readChar(s);
-                continue;
-            }
-            /* Split pattern letters+digits (e.g. listb5) into TK_FIELDID + TK_NUM
-               when the prefix is all lowercase letters and prefix length > 1. */
+            /* Iteratively split mixed letter/digit lexemes into sensible tokens.
+               Rules:
+               - Parse runs of letters then optional run of digits, left-to-right.
+               - If a letters run is all-lowercase and length>1 and immediately
+                 followed by a digit run that continues until a non-digit, emit
+                 TK_FIELDID(letters) then TK_NUM(digits).
+               - If a letters run has length==1 and is followed by digits, emit
+                 TK_ID for letters+digits (e.g. c3, d4).
+               - Otherwise, treat the letters run as keyword/ID/fieldid by
+                 lookup: keywords first, then TK_FIELDID (all-lowercase), else TK_ID.
+               - If any emitted identifier (letters run) exceeds 20 chars, emit
+                 the long-identifier error and skip remaining alnums.
+            */
+            /* If lexeme has the form: single-letter + digits + letters... then
+               prefer to treat the whole lexeme as an identifier (TK_ID).
+               This prevents splitting names like 'd5cb34567' into d5/cb/34567.
+            */
             int firstDigit = -1;
-            for(int i = 0; i < len; i++){
-                if(isNum((unsigned char)lexeme[i])){ firstDigit = i; break; }
-            }
-            if(firstDigit > 1){
-                int onlyDigits = 1;
-                for(int j = firstDigit; j < len; j++){
-                    if(!isNum((unsigned char)lexeme[j])){ onlyDigits = 0; break; }
+            for(int i=0;i<len;i++) if(isNum((unsigned char)lexeme[i])){ firstDigit = i; break; }
+            if(firstDigit == 1){
+                int hasAlphaAfter = 0;
+                for(int j = firstDigit; j < len; j++) if(isAlpha((unsigned char)lexeme[j])){ hasAlphaAfter = 1; break; }
+                if(hasAlphaAfter){
+                    emitToken(s, TK_ID, lexeme, len);
+                    continue;
                 }
-                if(onlyDigits){
-                    char prefix[MAX_LEXEME_LEN];
-                    int plen = firstDigit;
-                    memcpy(prefix, lexeme, plen);
-                    prefix[plen] = '\0';
-                    if(isFieldId(prefix)){
-                        emitToken(s, TK_FIELDID, prefix, plen);
-                        char suffix[MAX_LEXEME_LEN];
-                        int slen = len - firstDigit;
-                        memcpy(suffix, lexeme + firstDigit, slen);
-                        suffix[slen] = '\0';
-                        emitToken(s, TK_NUM, suffix, slen);
+            }
+
+            int pos = 0;
+            while(pos < len){
+                /* collect letters run */
+                int lstart = pos;
+                while(pos < len && isAlpha((unsigned char)lexeme[pos])) pos++;
+                int llen = pos - lstart;
+                if(llen <= 0){
+                    /* shouldn't happen — fall back to emitting the remainder as ID */
+                    emitToken(s, TK_ID, lexeme + pos, len - pos);
+                    break;
+                }
+
+                /* collect digit run immediately after letters */
+                int dstart = pos;
+                while(pos < len && isNum((unsigned char)lexeme[pos])) pos++;
+                int dlen = pos - dstart;
+
+                if(llen > 20){
+                    appendErrorToTokenList(s, "Variable Identifier is longer than the prescribed length of 20 characters.");
+                    /* skip remaining alnum characters */
+                    while(isAlphaNum(peekChar(s))) readChar(s);
+                    break;
+                }
+
+                if(dlen > 0){
+                    /* letters followed by digits */
+                    /* build substrings */
+                    char letters[MAX_LEXEME_LEN];
+                    memcpy(letters, lexeme + lstart, llen); letters[llen] = '\0';
+                    if(llen == 1){
+                        /* emit single-letter + digits as TK_ID */
+                        char combined[MAX_LEXEME_LEN];
+                        int clen = llen + dlen;
+                        memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        emitToken(s, TK_ID, combined, clen);
                         continue;
                     }
+                    /* llen > 1 */
+                    if(isFieldId(letters)){
+                        emitToken(s, TK_FIELDID, letters, llen);
+                        char digits[MAX_LEXEME_LEN];
+                        memcpy(digits, lexeme + dstart, dlen); digits[dlen] = '\0';
+                        emitToken(s, TK_NUM, digits, dlen);
+                        continue;
+                    } else {
+                        /* not a pure-fieldid prefix; emit whole letters+digits as ID */
+                        char combined[MAX_LEXEME_LEN];
+                        int clen = llen + dlen;
+                        memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        emitToken(s, TK_ID, combined, clen);
+                        continue;
+                    }
+                } else {
+                    /* letters not followed by digits: treat as keyword/fieldid/ID */
+                    char letters[MAX_LEXEME_LEN];
+                    memcpy(letters, lexeme + lstart, llen); letters[llen] = '\0';
+                    char lower[MAX_LEXEME_LEN];
+                    for(int i = 0; i < llen; i++) lower[i] = (char)tolower((unsigned char)letters[i]);
+                    lower[llen] = '\0';
+                    TokenType type = lookupKeyword(&s->keywordMap, lower);
+                    if(type == TK_ERROR){
+                        if(isFieldId(letters)) type = TK_FIELDID; else type = TK_ID;
+                    }
+                    emitToken(s, type, letters, llen);
+                    continue;
                 }
             }
-
-            char lower[MAX_LEXEME_LEN];
-            for(int i = 0; i < len; i++)
-                lower[i] = (char)tolower((unsigned char)lexeme[i]);
-            lower[len] = '\0';
-
-            TokenType type = lookupKeyword(&s->keywordMap, lower);
-            if(type == TK_ERROR){
-                if(isFieldId(lexeme))
-                    type = TK_FIELDID;
-                else
-                    type = TK_ID;
-            }
-            emitToken(s, type, lexeme, len);
             continue;
         }
 
