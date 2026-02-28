@@ -257,7 +257,7 @@ Grammar loadGrammar(const char* filename) {
                         NonTerminal nt = lookupNonTerminal(sym);
                         if(nt != NT_UNKNOWN) {
                             // Encode nonterminal as negative value to distinguish from terminal
-                            prod.rhs[prod.rhsCount++] = -(int)nt - 1;
+                            prod.rhs[prod.rhsCount++] = -(int)nt - 2;
                         }
                     }
                 }
@@ -280,11 +280,11 @@ static int isNonTerminal(int symbol) {
 }
 
 static int decodeNonTerminal(int symbol) {
-    return -(symbol + 1);
+    return -(symbol + 2);
 }
 
 static int encodeNonTerminal(int nt) {
-    return -(nt + 1);
+    return -(nt + 2);
 }
 
 /* -------- Helper: Check if a production can derive epsilon -------- */
@@ -558,6 +558,14 @@ ParseTree parseInputSourceCode(char *testcaseFile, Grammar G, ParseTable T) {
         return PT;
     }
 
+    printf("\n=== DEBUG: Parser Starting ===\n");
+    printf("Tokens loaded: %d\n", tokens.size);
+    if (tokens.size > 0) printf("First token type: %d, lexeme: %s\n", tokens.buf[0].type, tokens.buf[0].lexeme);
+    printf("Grammar rules: %d\n", G.ruleCount);
+    printf("Starting with NT_PROGRAM encoded as: %d\n", encodeNonTerminal(NT_PROGRAM));
+    printf("NT_PROGRAM enum value: %d\n", NT_PROGRAM);
+    printf("=== END DEBUG ===\n\n");
+
     // Initialize parsing stack and current token
     int stack[512];
     int stackPtr = 0;
@@ -575,13 +583,13 @@ ParseTree parseInputSourceCode(char *testcaseFile, Grammar G, ParseTable T) {
     int syntaxErrorCount = 0;
     int maxErrors = 10;
 
-    printf("DEBUG: Starting parse with %d tokens\n", tokens.size);
-    if (tokens.size > 0) {
-        printf("DEBUG: First token type: %d\n", tokens.buf[0].type);
-    }
-
-    // Main parsing loop
+    // Main parsing loop - declare childNodes outside the loop
+    ParseTreeNode* childNodes[MAX_TERMINALS];
+    int loopCount = 0;
     while (stackPtr > 0) {
+        loopCount++;
+        if (loopCount <= 5) printf("Loop %d: stackPtr=%d, top=%d, isNT=%d\n", loopCount, stackPtr, stack[stackPtr-1], isNonTerminal(stack[stackPtr-1]));
+
         int top = stack[--stackPtr];
         ParseTreeNode* topNode = nodeStack[--nodeStackPtr];
 
@@ -608,16 +616,11 @@ ParseTree parseInputSourceCode(char *testcaseFile, Grammar G, ParseTable T) {
             int A = decodeNonTerminal(top);
             int ruleIdx = T.table[A][currentToken.type];
 
-            printf("DEBUG: Expanding %s with token %d, rule: %d\n",
-                   nonTerminalToString((NonTerminal)A), currentToken.type, ruleIdx);
-
             if (ruleIdx >= 0) {
                 // Production found
                 Production prod = G.rules[ruleIdx];
-                printf("DEBUG:   RHS count: %d\n", prod.rhsCount);
 
                 // Create child nodes for RHS and add to parent
-                ParseTreeNode* childNodes[MAX_TERMINALS];
                 int childCount = 0;
 
                 for (int i = 0; i < prod.rhsCount; i++) {
