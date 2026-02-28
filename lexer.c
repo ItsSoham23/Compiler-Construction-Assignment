@@ -444,6 +444,7 @@ TokenList scan(State *s){
             char lexeme[MAX_LEXEME_LEN];
             int len = 0;
             int isReal = 0;
+            int malformedReal = 0;
             lexeme[len++] = (char)c;
             while(len < MAX_LEXEME_LEN - 1){
                 int next = peekChar(s);
@@ -463,7 +464,12 @@ TokenList scan(State *s){
                         break;
                     }
                     if(fracDigits == 0){
-                        printLexerError("malformed real", s);
+                        /* treat trailing dot with no fractional digits as Unknown pattern */
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        malformedReal = 1;
                         break;
                     }
                     /* If fractional part has exactly one digit, treat as Unknown pattern */
@@ -534,6 +540,7 @@ TokenList scan(State *s){
                     emit = 0;
                 }
             }
+            if(malformedReal) emit = 0;
             if(emit)
                 emitToken(s, isReal ? TK_RNUM : TK_NUM, lexeme, len);
             continue;
