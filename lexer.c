@@ -8,8 +8,8 @@ static int g_apiReady = 0;
 static int g_apiTokenIndex = 0;
 static int g_streamingScanMode = 0;
 
-#define TWIN_BUFFER_CHUNK 512
-#define TWIN_PUSHBACK_MAX 64
+#define TWIN_BUFFER_CHUNK 50
+#define TWIN_PUSHBACK_MAX 50
 
 typedef struct TwinBufferContext {
     FILE *file;
@@ -677,10 +677,10 @@ TokenList scan(State *s){
 /* ---------------- Public API ---------------- */
 
 void removeComments(char *testcaseFile, char *cleanFile){
-    if(!testcaseFile || !cleanFile) return;
+    if(!testcaseFile) return;
     FILE *in = fopen(testcaseFile, "r");
     if(!in) return;
-    FILE *out = fopen(cleanFile, "w");
+    FILE *out = cleanFile ? fopen(cleanFile, "w") : stdout;
     if(!out){
         fclose(in);
         return;
@@ -730,7 +730,7 @@ void removeComments(char *testcaseFile, char *cleanFile){
     }
 
     fclose(in);
-    fclose(out);
+    if(out != stdout) fclose(out);
 }
 
 /* ---------------- Required lexer API ---------------- */
