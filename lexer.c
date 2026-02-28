@@ -69,6 +69,33 @@ static const char* tokenTypeToString(TokenType type){
     return tokenTypeNames[type];
 }
 
+/* ---------------- Public API state ---------------- */
+
+static State g_apiState;
+static int g_apiReady = 0;
+static int g_apiTokenIndex = 0;
+
+/* Forward declarations for internal functions used before definition */
+Token newToken(TokenType type, State* s);
+TokenList newTokenList(int initialCapacity);
+void appendToTokenList(Token c, TokenList* t);
+Hashmap initializeKeywordMap();
+TokenList scan(State *s);
+
+static void resetApiState(void){
+    if(!g_apiReady) return;
+    for(int i = 0; i < g_apiState.tokenList.size; i++){
+        if(g_apiState.tokenList.buf[i].errMsg)
+            free(g_apiState.tokenList.buf[i].errMsg);
+    }
+    free(g_apiState.tokenList.buf);
+    g_apiState.tokenList.buf = NULL;
+    g_apiState.tokenList.size = 0;
+    g_apiState.tokenList.capacity = 0;
+    g_apiReady = 0;
+    g_apiTokenIndex = 0;
+}
+
 /* ---------------- Utility functions ---------------- */
 
 void printError(const char *msg){
@@ -665,9 +692,9 @@ TokenList scan(State *s){
     return s->tokenList;
 }
 
-/* ---------------- Comment removal ---------------- */
+/* ---------------- Comment removal helpers/public API ---------------- */
 
-void removeComments(const char* filename){
+static void removeCommentsToStdout(const char* filename){
     FILE* f = fopen(filename,"r");
     if(!f) return;
 
@@ -688,6 +715,84 @@ void removeComments(const char* filename){
         putchar(c);
     }
     fclose(f);
+}
+
+void removeComments(char *testcaseFile, char *cleanFile){
+    if(!testcaseFile || !cleanFile) return;
+    FILE *in = fopen(testcaseFile, "r");
+    if(!in) return;
+    FILE *out = fopen(cleanFile, "w");
+    if(!out){
+        fclose(in);
+        return;
+    }
+
+    int c;
+    int inComment = 0;
+    while((c = fgetc(in)) != EOF){
+        if(!inComment && c == '%'){
+            inComment = 1;
+            continue;
+        }
+        if(inComment){
+            if(c == '\n'){
+                fputc('\n', out);
+                inComment = 0;
+            }
+            continue;
+        }
+        fputc(c, out);
+    }
+
+    fclose(in);
+    fclose(out);
+}
+
+/* ---------------- Required lexer API ---------------- */
+
+FILE *getStream(FILE *fp){
+    if(!fp) return NULL;
+
+    resetApiState();
+
+    g_apiState.file = fp;
+    g_apiState.line = 1;
+    g_apiState.isAtEnd = 0;
+    g_apiState.scanNext = 1;
+    g_apiState.tokenList = newTokenList(16);
+    g_apiState.keywordMap = initializeKeywordMap();
+
+    g_apiState.tokenList = scan(&g_apiState);
+    g_apiReady = 1;
+    g_apiTokenIndex = 0;
+
+    return fp;
+}
+
+tokenInfo getNextToken(twinBuffer B){
+    State fallbackState;
+    fallbackState.line = 1;
+
+    if(!g_apiReady && B != NULL)
+        getStream(B);
+
+    if(!g_apiReady){
+        tokenInfo t = newToken(TK_ERROR, &fallbackState);
+        const char *msg = "Scanner not initialized";
+        t.errMsg = malloc(strlen(msg) + 1);
+        if(t.errMsg) strcpy(t.errMsg, msg);
+        return t;
+    }
+
+    if(g_apiTokenIndex >= g_apiState.tokenList.size){
+        tokenInfo t = newToken(TK_ERROR, &g_apiState);
+        const char *msg = "EOF";
+        t.errMsg = malloc(strlen(msg) + 1);
+        if(t.errMsg) strcpy(t.errMsg, msg);
+        return t;
+    }
+
+    return g_apiState.tokenList.buf[g_apiTokenIndex++];
 }
 
 /* ---------------- Driver ---------------- */
@@ -720,6 +825,6 @@ int main(int argc, char** argv){
 
     printTokens(argv[1]);
     printf("\n=== Source without comments ===\n");
-    removeComments(argv[1]);
+    removeCommentsToStdout(argv[1]);
     return 0;
 }
