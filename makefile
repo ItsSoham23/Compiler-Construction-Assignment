@@ -4,7 +4,7 @@ LDFLAGS = -lm
 
 TARGET = stage1exe
 
-SOURCES = driver.c refparser.c
+SOURCES = driver.c parser.c
 OBJECTS = $(SOURCES:.c=.o)
 LEXER_OBJ = lexer.o
 
