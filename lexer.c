@@ -1,80 +1,79 @@
 #include "lexer.h"
 #include <ctype.h>
 
-static const char* tokenTypeNames[] = {
-    "TK_ASSIGNOP",
-    "TK_COMMENT",
-    "TK_FIELDID",
-    "TK_ID",
-    "TK_NUM",
-    "TK_RNUM",
-    "TK_FUNID",
-    "TK_RUID",
-    "TK_WITH",
-    "TK_PARAMETERS",
-    "TK_END",
-    "TK_WHILE",
-    "TK_UNION",
-    "TK_ENDUNION",
-    "TK_DEFINETYPE",
-    "TK_AS",
-    "TK_TYPE",
-    "TK_MAIN",
-    "TK_GLOBAL",
-    "TK_PARAMETER",
-    "TK_LIST",
-    "TK_SQL",
-    "TK_SQR",
-    "TK_INPUT",
-    "TK_OUTPUT",
-    "TK_INT",
-    "TK_REAL",
-    "TK_COMMA",
-    "TK_SEM",
-    "TK_COLON",
-    "TK_DOT",
-    "TK_ENDWHILE",
-    "TK_OP",
-    "TK_CL",
-    "TK_IF",
-    "TK_THEN",
-    "TK_ENDIF",
-    "TK_READ",
-    "TK_WRITE",
-    "TK_RETURN",
-    "TK_PLUS",
-    "TK_MINUS",
-    "TK_MUL",
-    "TK_DIV",
-    "TK_CALL",
-    "TK_RECORD",
-    "TK_ENDRECORD",
-    "TK_ELSE",
-    "TK_AND",
-    "TK_OR",
-    "TK_NOT",
-    "TK_LT",
-    "TK_LE",
-    "TK_EQ",
-    "TK_GT",
-    "TK_GE",
-    "TK_NE",
-    "TK_EOF",
-    "TK_ERROR"
-};
+/* ---------------- Public API state ---------------- */
 
-const char* tokenTypeName(TokenType type){
-    size_t count = sizeof(tokenTypeNames)/sizeof(tokenTypeNames[0]);
-    if((int)type < 0 || (size_t)type >= count)
-        return "TK_UNKNOWN";
-    return tokenTypeNames[type];
+static State g_apiState;
+static int g_apiReady = 0;
+static int g_apiTokenIndex = 0;
+static int g_streamingScanMode = 0;
+
+#define TWIN_BUFFER_CHUNK 50
+#define TWIN_PUSHBACK_MAX 50
+
+typedef struct TwinBufferContext {
+    FILE *file;
+    char block[2][TWIN_BUFFER_CHUNK];
+    size_t fill[2];
+    int activeBlock;
+    size_t cursor;
+    int initialized;
+    int pushback[TWIN_PUSHBACK_MAX];
+    int pushbackTop;
+} TwinBufferContext;
+
+static TwinBufferContext g_twin = {0};
+
+static void resetTwinBuffer(void){
+    g_twin.file = NULL;
+    g_twin.fill[0] = g_twin.fill[1] = 0;
+    g_twin.activeBlock = 0;
+    g_twin.cursor = 0;
+    g_twin.initialized = 0;
+    g_twin.pushbackTop = 0;
+}
+
+static void initTwinBuffer(FILE *fp){
+    resetTwinBuffer();
+    g_twin.file = fp;
+    g_twin.fill[0] = fread(g_twin.block[0], 1, TWIN_BUFFER_CHUNK, fp);
+    g_twin.fill[1] = 0;
+    g_twin.activeBlock = 0;
+    g_twin.cursor = 0;
+    g_twin.initialized = 1;
+}
+
+static void clearTokenErrors(TokenList *tl){
+    for(int i = 0; i < tl->size; i++){
+        if(tl->buf[i].errMsg){
+            free(tl->buf[i].errMsg);
+            tl->buf[i].errMsg = NULL;
+        }
+    }
+    tl->size = 0;
+}
+
+/* Forward declarations for internal functions used before definition */
+Token newToken(TokenType type, State* s);
+TokenList newTokenList(int initialCapacity);
+void appendToTokenList(Token c, TokenList* t);
+Hashmap initializeKeywordMap();
+TokenList scan(State *s);
+
+static void resetApiState(void){
+    if(!g_apiReady) return;
+    clearTokenErrors(&g_apiState.tokenList);
+    free(g_apiState.tokenList.buf);
+    g_apiState.tokenList.buf = NULL;
+    g_apiState.tokenList.size = 0;
+    g_apiState.tokenList.capacity = 0;
+    g_apiReady = 0;
+    g_apiTokenIndex = 0;
+    g_streamingScanMode = 0;
+    resetTwinBuffer();
 }
 
 /* ---------------- Utility functions ---------------- */
-
-void printError(const char *msg){
-    perror(msg);
-}
 
 static void appendErrorToTokenList(State *s, const char *msg){
     Token t = newToken(TK_ERROR, s);
@@ -99,25 +98,39 @@ int isAlpha(char c){ return isSmallAlpha(c) || (c >= 'A' && c <= 'Z'); }
 int isNum(char c){ return c >= '0' && c <= '9'; }
 int isAlphaNum(char c){ return isAlpha(c) || isNum(c); }
 
-int match(char a, char b, const char* msg, State* s){
-    if(a == b) return 1;
-    printLexerError(msg, s);
-    s->scanNext = 0;
-    return 0;
-}
-
 static int readChar(State *s){
-    int c = fgetc(s->file);
+    if(!g_twin.initialized || g_twin.file != s->file)
+        initTwinBuffer(s->file);
+
+    if(g_twin.pushbackTop > 0){
+        int c = g_twin.pushback[--g_twin.pushbackTop];
+        if(c == '\n') s->line++;
+        s->isAtEnd = 0;
+        return c;
+    }
+
+    while(g_twin.cursor >= g_twin.fill[g_twin.activeBlock]){
+        int next = 1 - g_twin.activeBlock;
+        g_twin.fill[next] = fread(g_twin.block[next], 1, TWIN_BUFFER_CHUNK, s->file);
+        g_twin.activeBlock = next;
+        g_twin.cursor = 0;
+        if(g_twin.fill[g_twin.activeBlock] == 0){
+            s->isAtEnd = 1;
+            return EOF;
+        }
+    }
+
+    int c = (unsigned char)g_twin.block[g_twin.activeBlock][g_twin.cursor++];
     if(c == '\n')
         s->line++;
-    if(c == EOF)
-        s->isAtEnd = 1;
+    s->isAtEnd = 0;
     return c;
 }
 
 static void unreadChar(State *s, int c){
     if(c == EOF) return;
-    ungetc(c, s->file);
+    if(g_twin.pushbackTop < TWIN_PUSHBACK_MAX)
+        g_twin.pushback[g_twin.pushbackTop++] = c;
     if(c == '\n' && s->line > 1)
         s->line--;
     s->isAtEnd = 0;
@@ -237,34 +250,21 @@ TokenType lookupKeyword(Hashmap *h, const char *key){
     return TK_ERROR;
 }
 
-/* ---------------- State ---------------- */
-
-State initializeState(const char *fileName){
-    FILE* f = fopen(fileName,"r");
-    if(!f) printError("File not found");
-
-    State s;
-    s.file = f;
-    s.line = 1;
-    s.isAtEnd = 0;
-    s.scanNext = 1;
-    s.tokenList = newTokenList(16);
-    s.keywordMap = initializeKeywordMap();
-    return s;
-}
-
 /* ---------------- Lexer ---------------- */
 
 TokenList scan(State *s){
     int c;
 
     while((c = readChar(s)) != EOF){
+        int startSize = s->tokenList.size;
         if(c == '\n') continue;
         if(c == ' ' || c == '\t' || c == '\r') continue;
 
         if(c == '%'){
             emitToken(s, TK_COMMENT, "%", 1);
             while((c = readChar(s)) != EOF && c != '\n');
+            if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
+            if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
             continue;
         }
 
@@ -425,6 +425,7 @@ TokenList scan(State *s){
             if(strcmp(lexeme, "_main") == 0)
                 type = TK_MAIN;
             emitToken(s, type, lexeme, len);
+            if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
             continue;
         }
 
@@ -438,6 +439,7 @@ TokenList scan(State *s){
                 emitToken(s, TK_RUID, lexeme, len);
             else
                 printLexerError("malformed reference identifier", s);
+            if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
             continue;
         }
 
@@ -445,6 +447,7 @@ TokenList scan(State *s){
             char lexeme[MAX_LEXEME_LEN];
             int len = 0;
             int isReal = 0;
+            int malformedReal = 0;
             lexeme[len++] = (char)c;
             while(len < MAX_LEXEME_LEN - 1){
                 int next = peekChar(s);
@@ -464,7 +467,12 @@ TokenList scan(State *s){
                         break;
                     }
                     if(fracDigits == 0){
-                        printLexerError("malformed real", s);
+                        /* treat trailing dot with no fractional digits as Unknown pattern */
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        malformedReal = 1;
                         break;
                     }
                     /* If fractional part has exactly one digit, treat as Unknown pattern */
@@ -535,8 +543,10 @@ TokenList scan(State *s){
                     emit = 0;
                 }
             }
+            if(malformedReal) emit = 0;
             if(emit)
                 emitToken(s, isReal ? TK_RNUM : TK_NUM, lexeme, len);
+            if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
             continue;
         }
 
@@ -652,68 +662,170 @@ TokenList scan(State *s){
             default:
                 printLexerError("unrecognized symbol", s);
         }
+
+        if(g_streamingScanMode && s->tokenList.size > startSize) return s->tokenList;
     }
 
-    fclose(s->file);
+    if(!g_streamingScanMode){
+        fclose(s->file);
+        resetTwinBuffer();
+    }
     s->isAtEnd = 1;
     return s->tokenList;
 }
 
-/* ---------------- Comment removal ---------------- */
+/* ---------------- initializeState / tokenTypeName ---------------- */
 
-void removeComments(const char* filename){
-    FILE* f = fopen(filename,"r");
-    if(!f) return;
+State initializeState(const char *fileName){
+    State s;
+    s.file = fopen(fileName, "r");
+    s.line = 1;
+    s.isAtEnd = 0;
+    s.scanNext = 1;
+    s.tokenList = newTokenList(16);
+    s.keywordMap = initializeKeywordMap();
+    return s;
+}
+
+const char *tokenTypeName(TokenType type){
+    static const char *names[] = {
+        "TK_ASSIGNOP", "TK_COMMENT", "TK_FIELDID", "TK_ID",
+        "TK_NUM", "TK_RNUM", "TK_FUNID", "TK_RUID",
+        "TK_WITH", "TK_PARAMETERS", "TK_END", "TK_WHILE",
+        "TK_UNION", "TK_ENDUNION", "TK_DEFINETYPE", "TK_AS",
+        "TK_TYPE", "TK_MAIN", "TK_GLOBAL", "TK_PARAMETER",
+        "TK_LIST", "TK_SQL", "TK_SQR", "TK_INPUT",
+        "TK_OUTPUT", "TK_INT", "TK_REAL",
+        "TK_COMMA", "TK_SEM", "TK_COLON", "TK_DOT",
+        "TK_ENDWHILE", "TK_OP", "TK_CL", "TK_IF",
+        "TK_THEN", "TK_ENDIF", "TK_READ", "TK_WRITE",
+        "TK_RETURN", "TK_PLUS", "TK_MINUS", "TK_MUL", "TK_DIV",
+        "TK_CALL", "TK_RECORD", "TK_ENDRECORD", "TK_ELSE",
+        "TK_AND", "TK_OR", "TK_NOT",
+        "TK_LT", "TK_LE", "TK_EQ", "TK_GT", "TK_GE", "TK_NE",
+        "TK_EOF", "TK_ERROR"
+    };
+    if((int)type < 0 || (size_t)type >= sizeof(names)/sizeof(names[0]))
+        return "TK_UNKNOWN";
+    return names[type];
+}
+
+/* ---------------- Public API ---------------- */
+
+void removeComments(char *testcaseFile, char *cleanFile){
+    if(!testcaseFile) return;
+    FILE *in = fopen(testcaseFile, "r");
+    if(!in) return;
+    FILE *out = NULL;
+    if(cleanFile){
+        out = fopen(cleanFile, "w");
+        if(!out){ fclose(in); return; }
+    }
+
+#define EMIT(ch) do { \
+        fputc((ch), stdout); \
+        if(out) fputc((ch), out); \
+    } while(0)
 
     int c;
     int inComment = 0;
-    while((c = fgetc(f)) != EOF){
+    int lineHasContent = 0;
+    int pendingSpaces = 0;
+    while((c = fgetc(in)) != EOF){
         if(!inComment && c == '%'){
             inComment = 1;
             continue;
         }
         if(inComment){
             if(c == '\n'){
-                putchar('\n');
+                if(lineHasContent)
+                    EMIT('\n');
                 inComment = 0;
+                lineHasContent = 0;
+                pendingSpaces = 0;
             }
             continue;
         }
-        putchar(c);
-    }
-    fclose(f);
-}
 
-/* ---------------- Driver ---------------- */
+        if(c == '\r')
+            continue;
 
-void printTokens(const char* filename){
-    State s = initializeState(filename);
-    TokenList tl = scan(&s);
-
-    for(int i=0;i<tl.size;i++){
-        Token *tk = &tl.buf[i];
-        if(tk->type == TK_ERROR){
-            if(tk->errMsg)
-                printf("Line No %d : Error: %s\n", tk->lineNo, tk->errMsg);
-            else
-                printf("Line No %d : Error: (unknown)\n", tk->lineNo);
-        } else {
-                 printf("Line no. %d\t Lexeme %s\t Token %s\n",
-                     tk->lineNo,
-                     tk->lexeme,
-                     tokenTypeName(tk->type));
+        if(c == '\n'){
+            if(lineHasContent)
+                EMIT('\n');
+            lineHasContent = 0;
+            pendingSpaces = 0;
+            continue;
         }
+
+        if(c == ' ' || c == '\t'){
+            pendingSpaces++;
+            continue;
+        }
+
+        while(pendingSpaces-- > 0)
+            EMIT(' ');
+        pendingSpaces = 0;
+        EMIT(c);
+        lineHasContent = 1;
     }
+
+#undef EMIT
+
+    fclose(in);
+    if(out) fclose(out);
 }
 
-// int main(int argc, char** argv){
-//     if(argc < 2){
-//         fprintf(stderr, "Usage: %s <source-file>\n", argv[0]);
-//         return 1;
-//     }
+/* ---------------- Required lexer API ---------------- */
 
-//     printTokens(argv[1]);
-//     printf("\n=== Source without comments ===\n");
-//     removeComments(argv[1]);
-//     return 0;
-// }
+FILE *getStream(FILE *fp){
+    if(!fp) return NULL;
+
+    resetApiState();
+    resetTwinBuffer();
+
+    g_apiState.file = fp;
+    g_apiState.line = 1;
+    g_apiState.isAtEnd = 0;
+    g_apiState.scanNext = 1;
+    g_apiState.tokenList = newTokenList(16);
+    g_apiState.keywordMap = initializeKeywordMap();
+    g_apiReady = 1;
+    g_apiTokenIndex = 0;
+
+    return fp;
+}
+
+tokenInfo getNextToken(twinBuffer B){
+    State fallbackState;
+    fallbackState.line = 1;
+
+    if(!g_apiReady && B != NULL)
+        getStream(B);
+
+    if(!g_apiReady){
+        tokenInfo t = newToken(TK_ERROR, &fallbackState);
+        const char *msg = "Scanner not initialized";
+        t.errMsg = malloc(strlen(msg) + 1);
+        if(t.errMsg) strcpy(t.errMsg, msg);
+        return t;
+    }
+
+    if(g_apiTokenIndex >= g_apiState.tokenList.size){
+        clearTokenErrors(&g_apiState.tokenList);
+        g_apiTokenIndex = 0;
+        g_streamingScanMode = 1;
+        scan(&g_apiState);
+        g_streamingScanMode = 0;
+    }
+
+    if(g_apiTokenIndex >= g_apiState.tokenList.size){
+        tokenInfo t = newToken(TK_ERROR, &g_apiState);
+        const char *msg = "EOF";
+        t.errMsg = malloc(strlen(msg) + 1);
+        if(t.errMsg) strcpy(t.errMsg, msg);
+        return t;
+    }
+
+    return g_apiState.tokenList.buf[g_apiTokenIndex++];
+}

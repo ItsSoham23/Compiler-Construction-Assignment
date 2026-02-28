@@ -35,15 +35,60 @@ int main(int argc, char* argv[]) {
                 printf("\nExiting program...\n");
                 return 0;
 
-            case 1:
+             case 1:
                 printf("\n========== Option 1: Removing Comments ==========\n");
-                removeComments(testcaseFile);
+                removeComments((char*)testcaseFile, "clean_driver.txt");
+                printf("\nOutput also written to: clean_driver.txt\n");
                 break;
 
             case 2:
                 printf("\n========== Option 2: Printing Token List ==========\n");
                 printf("Tokens from: %s\n", testcaseFile);
-                printTokens(testcaseFile);
+                {
+                    static const char *tokenTypeNames[] = {
+                        "TK_ASSIGNOP", "TK_COMMENT", "TK_FIELDID", "TK_ID",
+                        "TK_NUM", "TK_RNUM", "TK_FUNID", "TK_RUID",
+                        "TK_WITH", "TK_PARAMETERS", "TK_END", "TK_WHILE",
+                        "TK_UNION", "TK_ENDUNION", "TK_DEFINETYPE", "TK_AS",
+                        "TK_TYPE", "TK_MAIN", "TK_GLOBAL", "TK_PARAMETER",
+                        "TK_LIST", "TK_SQL", "TK_SQR", "TK_INPUT",
+                        "TK_OUTPUT", "TK_INT", "TK_REAL",
+                        "TK_COMMA", "TK_SEM", "TK_COLON", "TK_DOT",
+                        "TK_ENDWHILE", "TK_OP", "TK_CL", "TK_IF",
+                        "TK_THEN", "TK_ENDIF", "TK_READ", "TK_WRITE",
+                        "TK_RETURN", "TK_PLUS", "TK_MINUS", "TK_MUL", "TK_DIV",
+                        "TK_CALL", "TK_RECORD", "TK_ENDRECORD", "TK_ELSE",
+                        "TK_AND", "TK_OR", "TK_NOT",
+                        "TK_LT", "TK_LE", "TK_EQ", "TK_GT", "TK_GE", "TK_NE",
+                        "TK_ERROR"
+                    };
+                    FILE *fp2 = fopen(testcaseFile, "r");
+                    if (!fp2) {
+                        fprintf(stderr, "Error: Cannot open file %s\n", testcaseFile);
+                    } else {
+                        getStream(fp2);
+                        int tokenCount = 0, errorCount = 0;
+                        while (1) {
+                            tokenInfo tk = getNextToken(NULL);
+                            if (tk.type == TK_ERROR && tk.errMsg && strcmp(tk.errMsg, "EOF") == 0)
+                                break;
+                            if (tk.type == TK_ERROR) {
+                                printf("Line %-4u  LEXICAL ERROR: %s\n",
+                                       tk.lineNo,
+                                       tk.errMsg ? tk.errMsg : tk.lexeme);
+                                errorCount++;
+                            } else {
+                                printf("Line %-4u  Lexeme: %-24s  Token: %s\n",
+                                       tk.lineNo,
+                                       tk.lexeme,
+                                       tokenTypeNames[tk.type]);
+                                tokenCount++;
+                            }
+                        }
+                        fclose(fp2);
+                        printf("\nTotal tokens: %d, Lexical errors: %d\n", tokenCount, errorCount);
+                    }
+                }
                 break;
 
             case 3:

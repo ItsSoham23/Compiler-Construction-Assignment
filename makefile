@@ -4,16 +4,15 @@ LDFLAGS = -lm
 
 TARGET = stage1exe
 
-SOURCES = driver.c refparser.c
+SOURCES = driver.c lexer.c refparser.c
 OBJECTS = $(SOURCES:.c=.o)
-LEXER_OBJ = lexer.o
 
 HEADERS = parser.h parserDef.h lexer.h lexerDef.h
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) $(LEXER_OBJ)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJECTS) $(LEXER_OBJ) $(LDFLAGS)
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS)
 	@echo "✓ Compilation successful!"
 	@echo "  Executable: $(TARGET)"
 	@echo "  Usage: ./$(TARGET) <testcase.txt> <parsetreeOutFile.txt>"

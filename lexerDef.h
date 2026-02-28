@@ -84,6 +84,10 @@ typedef struct Token{
     char *errMsg;
 } Token;
 
+/* Aliases used by the driver and getNextToken API */
+typedef Token tokenInfo;
+typedef FILE* twinBuffer;
+
 typedef struct TokenList{
     Token* buf;
     int size;

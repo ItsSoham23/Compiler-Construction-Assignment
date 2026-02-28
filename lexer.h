@@ -7,8 +7,12 @@
 #include <string.h>
 
 /* Interface */
-void removeComments(const char* filename);
+void removeComments(char* testcaseFile, char* cleanFile);
 void printTokens(const char* filename);
+
+/* Streaming token API used by driver */
+FILE* getStream(FILE* fp);
+tokenInfo getNextToken(twinBuffer B);
 
 /* Utilities */
 void printError(const char* msg);
