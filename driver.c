@@ -37,8 +37,8 @@ int main(int argc, char* argv[]) {
 
              case 1:
                 printf("\n========== Option 1: Removing Comments ==========\n");
-                removeComments((char*)testcaseFile, "clean_driver.txt");
-                printf("\nOutput also written to: clean_driver.txt\n");
+                removeComments((char*)testcaseFile, "removedComments.txt");
+                printf("\nOutput also written to: removedComments.txt\n");
                 break;
 
             case 2:
