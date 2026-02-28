@@ -52,19 +52,19 @@ int main(int argc, char* argv[]) {
                     printf("\nLoading grammar...\n");
                     Grammar G = loadGrammar("grammar.txt");
 
-                    if (G.ruleCount == 0) {
+                    if (G.numRules == 0) {
                         fprintf(stderr, "Error: Grammar not loaded properly\n");
                         break;
                     }
 
                     printf("Computing FIRST and FOLLOW sets...\n");
-                    FirstAndFollow F = ComputeFirstAndFollowSets(G);
+                    FirstAndFollow F = computeFirstAndFollowSets(&G);
 
                     printf("Building predictive parsing table...\n");
-                    ParseTable T = createParseTable(G, F);
+                    ParseTable T = createParseTable(&G, &F);
 
                     printf("\nParsing source code: %s\n", testcaseFile);
-                    ParseTree PT = parseInputSourceCode(testcaseFile, G, T);
+                    ParseTree *PT = parseInputSourceCode(testcaseFile, &G, &T, &F);
 
                     printf("\nPrinting parse tree to: %s\n", parseTreeFile);
                     printParseTree(PT, parseTreeFile);
@@ -91,9 +91,9 @@ int main(int argc, char* argv[]) {
                     TokenList tokens = scan(&s);
 
                     // Syntax analysis
-                    FirstAndFollow F = ComputeFirstAndFollowSets(G);
-                    ParseTable T = createParseTable(G, F);
-                    ParseTree PT = parseInputSourceCode(testcaseFile, G, T);
+                    FirstAndFollow F = computeFirstAndFollowSets(&G);
+                    ParseTable T = createParseTable(&G, &F);
+                    ParseTree *PT = parseInputSourceCode(testcaseFile, &G, &T, &F);
 
                     end_time = clock();
 

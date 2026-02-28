@@ -72,6 +72,7 @@ typedef enum TokenType{
     TK_GE,
     TK_NE,
 
+    TK_EOF,
     TK_ERROR
 } TokenType;
 

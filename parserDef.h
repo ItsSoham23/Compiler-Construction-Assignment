@@ -1,112 +1,153 @@
 #ifndef PARSERDEF_H
 #define PARSERDEF_H
 
-#include "lexerDef.h"   // for Token, TokenType
+#include "lexerDef.h"
 
-#define EPSILON -1
-#define MAX_NONTERMINALS 100
-#define MAX_TERMINALS    100
-#define MAX_RULES        200
-#define MAX_SYMBOLS      50
-#define MAX_PRODUCTIONS  200
+/* Ensure compatibility: define tokenInfo as alias for Token from lexerDef.h */
+typedef Token tokenInfo;
 
-/* ---------------- Grammar Representation ---------------- */
+/* Number of terminal slots for FIRST/FOLLOW and parse tables. */
+#ifndef NUM_TERMINALS
+#define NUM_TERMINALS 100
+#endif
+
+/* ============================================================
+ * Non-terminals
+ * ============================================================ */
+typedef enum {
+    NT_PROGRAM = 0,
+    NT_MAIN_FUNCTION,
+    NT_OTHER_FUNCTIONS,
+    NT_FUNCTION,
+    NT_INPUT_PAR,
+    NT_OUTPUT_PAR,
+    NT_PARAMETER_LIST,
+    NT_DATATYPE,
+    NT_PRIMITIVE_DATATYPE,
+    NT_CONSTRUCTED_DATATYPE,
+    NT_REMAINING_LIST,
+    NT_STMTS,
+    NT_TYPE_DEFINITIONS,
+    NT_ACTUAL_OR_REDEFINED,
+    NT_TYPE_DEFINITION,
+    NT_FIELD_DEFINITIONS,
+    NT_FIELD_DEFINITION,
+    NT_FIELD_TYPE,
+    NT_MORE_FIELDS,
+    NT_DECLARATIONS,
+    NT_DECLARATION,
+    NT_GLOBAL_OR_NOT,
+    NT_OTHER_STMTS,
+    NT_STMT,
+    NT_ASSIGNMENT_STMT,
+    NT_SINGLE_OR_REC_ID,
+    NT_OPTION_SINGLE_CONSTRUCTED,
+    NT_ONE_EXPANSION,
+    NT_MORE_EXPANSIONS,
+    NT_FUN_CALL_STMT,
+    NT_OUTPUT_PARAMETERS,
+    NT_INPUT_PARAMETERS,
+    NT_ITERATIVE_STMT,
+    NT_CONDITIONAL_STMT,
+    NT_ELSE_PART,
+    NT_IO_STMT,
+    NT_ARITHMETIC_EXPRESSION,
+    NT_EXP_PRIME,
+    NT_TERM,
+    NT_TERM_PRIME,
+    NT_FACTOR,
+    NT_HIGH_PREC_OPERATORS,
+    NT_LOW_PREC_OPERATORS,
+    NT_BOOLEAN_EXPRESSION,
+    NT_VAR,
+    NT_LOGICAL_OP,
+    NT_RELATIONAL_OP,
+    NT_RETURN_STMT,
+    NT_OPTIONAL_RETURN,
+    NT_ID_LIST,
+    NT_MORE_IDS,
+    NT_DEFINE_TYPE_STMT,
+    NT_A,
+    NUM_NON_TERMINALS   /* sentinel */
+} NonTerminal;
+
+/* ============================================================
+ * Grammar Symbol
+ * ============================================================ */
+typedef enum { SYM_TERMINAL, SYM_NON_TERMINAL } SymbolKind;
+
 typedef struct {
-    int lhs;              // Nonterminal index
-    int rhs[MAX_RULES];   // Sequence of symbols (terminals/nonterminals)
-    int rhsCount;         // Number of symbols on RHS
-} Production;
+    SymbolKind kind;
+    union {
+        TokenType    terminal;
+        NonTerminal  nonTerminal;
+    } sym;
+} GrammarSymbol;
+
+/* ============================================================
+ * Grammar Rule
+ * ============================================================ */
+#define MAX_RHS_LEN  16
+#define MAX_RULES    200
 
 typedef struct {
-    Production rules[MAX_RULES];
-    int ruleCount;
+    NonTerminal   lhs;
+    GrammarSymbol rhs[MAX_RHS_LEN];
+    int           rhsLen;   /* 0 means epsilon */
+} Rule;
+
+typedef struct {
+    Rule rules[MAX_RULES];
+    int  numRules;
+    int  ruleCount; /* alias for compatibility with older driver code */
 } Grammar;
 
-/* ---------------- FIRST and FOLLOW Sets ---------------- */
+/* ============================================================
+ * First / Follow sets
+ * ============================================================ */
 typedef struct {
-    int first[MAX_NONTERMINALS][MAX_TERMINALS];   // boolean matrix
-    int follow[MAX_NONTERMINALS][MAX_TERMINALS];  // boolean matrix
+    /* first[i] is a bitmask of terminal indices that are in FIRST of NT i */
+    /* We use an array of ints as a bitset over NUM_TERMINALS terminals    */
+    int firstSet [NUM_NON_TERMINALS][NUM_TERMINALS];
+    int followSet[NUM_NON_TERMINALS][NUM_TERMINALS];
+    int nullable [NUM_NON_TERMINALS];  /* 1 if NT can derive epsilon */
 } FirstAndFollow;
 
-/* ---------------- Predictive Parsing Table ---------------- */
+/* ============================================================
+ * Parse Table
+ * Rows = non-terminals, Cols = terminals
+ * value = rule index (into Grammar.rules[]), or -1 for error
+ * ============================================================ */
+#define PT_ERROR   -1
+#define PT_SYNCH   -2   /* synchronisation entry */
+
 typedef struct {
-    int table[MAX_NONTERMINALS][MAX_TERMINALS];   // entry = production index
+    int table[NUM_NON_TERMINALS][NUM_TERMINALS];
 } ParseTable;
 
-/* ---------------- Parse Tree ---------------- */
-typedef enum { TERMINAL, NONTERMINAL } SymbolType;
-
-typedef struct Symbol {
-    SymbolType type;
-    int value;   // TokenType if terminal, Nonterminal enum if nonterminal
-} Symbol;
-
+/* ============================================================
+ * Parse Tree Node
+ * ============================================================ */
 typedef struct ParseTreeNode {
-    Symbol symbol;
-    struct ParseTreeNode* parent;
-    struct ParseTreeNode** children;
-    int childCount;
-    Token tokenInfo;   // filled if leaf node
+    /* If isLeaf == 1 it is a terminal node */
+    int             isLeaf;
+    /* Leaf data */
+    tokenInfo       token;
+    /* Non-leaf data */
+    NonTerminal     nt;
+    /* Tree links */
+    struct ParseTreeNode *parent;
+    struct ParseTreeNode *firstChild;
+    struct ParseTreeNode *nextSibling;
 } ParseTreeNode;
 
 typedef struct {
-    ParseTreeNode* root;
+    ParseTreeNode *root;
 } ParseTree;
 
-typedef enum {
-    NT_PROGRAM,                 // 0
-    NT_MAINFUNCTION,            // 1
-    NT_OTHERFUNCTIONS,          // 2
-    NT_FUNCTION,                // 3
-    NT_INPUTPAR,                // 4
-    NT_OUTPUTPAR,               // 5
-    NT_PARAMETERLIST,           // 6
-    NT_DATATYPE,                // 7
-    NT_PRIMITIVEDATATYPE,       // 8
-    NT_CONSTRUCTEDDATATYPE,     // 9
-    NT_REMAININGLIST,           // 10
-    NT_STMTS,                   // 11
-    NT_TYPEDEFINITIONS,         // 12
-    NT_ACTUALORREDEFINED,       // 13 (NEW: for typeDefinition | definetypestmt)
-    NT_TYPEDEFINITION,          // 14
-    NT_FIELDDEFINITIONS,        // 15
-    NT_FIELDDEFINITION,         // 16
-    NT_FIELDTYPE,               // 17 (NEW: for primitiveDatatype | constructedDatatype)
-    NT_MOREFIELDS,              // 18
-    NT_DECLARATIONS,            // 19
-    NT_DECLARATION,             // 20
-    NT_GLOBALORNOT,             // 21
-    NT_OTHERSTMTS,              // 22
-    NT_STMT,                    // 23
-    NT_ASSIGNMENTSTMT,          // 24
-    NT_SINGLEORRECID,           // 25
-    NT_CONSTRUCTEDVARIABLE,     // 26
-    NT_ONEEXPANSION,            // 27
-    NT_MOREEXPANSIONS,          // 28
-    NT_FUNCALLSTMT,             // 29
-    NT_OUTPUTPARAMETERS,        // 30
-    NT_INPUTPARAMETERS,         // 31
-    NT_ITERATIVESTMT,           // 32
-    NT_CONDITIONALSTMT,         // 33
-    NT_ELSEPART,                // 34
-    NT_IOSTMT,                  // 35
-    NT_ARITHMETICEXPR,          // 36
-    NT_EXPPRIME,                // 37
-    NT_TERM,                    // 38
-    NT_TERMPRIME,               // 39
-    NT_FACTOR,                  // 40
-    NT_HIGHPRECEDENCEOP,        // 41
-    NT_LOWPRECEDENCEOP,         // 42
-    NT_BOOLEANEXPR,             // 43 (NEW: for booleanExpression)
-    NT_LOGICALOP,               // 44 (NEW: for logicalOp)
-    NT_RELATIONALOP,            // 45 (NEW: for relationalOp)
-    NT_VAR,                     // 46 (NEW: for var)
-    NT_IDLIST,                  // 47 (NEW: for idList)
-    NT_MOREIDS,                 // 48 (NEW: for more_ids)
-    NT_OPTIONALRETURN,          // 49 (NEW: for optionalReturn)
-    NT_DEFINETYPESTMT,          // 50 (NEW: for definetypestmt)
-    NT_A,                       // 51 (NEW: for A in definetypestmt)
-    NT_UNKNOWN
-} NonTerminal;
+/* ============================================================
+ * Non-terminal name table
+ * ============================================================ */
+extern const char *NT_NAMES[];   /* defined in parser.c */
 
-#endif
+#endif /* PARSERDEF_H */

@@ -23,6 +23,9 @@ Token newToken(TokenType type, State* s);
 TokenList newTokenList(int initialCapacity);
 void appendToTokenList(Token c, TokenList* t);
 
+/* Token type naming helper (defined in lexer.c) */
+const char* tokenTypeName(TokenType type);
+
 int match(char a, char b, const char* msg, State* s);
 
 /* Keyword map */

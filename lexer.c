@@ -59,12 +59,13 @@ static const char* tokenTypeNames[] = {
     "TK_GT",
     "TK_GE",
     "TK_NE",
+    "TK_EOF",
     "TK_ERROR"
 };
 
-static const char* tokenTypeToString(TokenType type){
+const char* tokenTypeName(TokenType type){
     size_t count = sizeof(tokenTypeNames)/sizeof(tokenTypeNames[0]);
-    if(type < 0 || (size_t)type >= count)
+    if((int)type < 0 || (size_t)type >= count)
         return "TK_UNKNOWN";
     return tokenTypeNames[type];
 }
@@ -697,10 +698,10 @@ void printTokens(const char* filename){
             else
                 printf("Line No %d : Error: (unknown)\n", tk->lineNo);
         } else {
-            printf("Line no. %d\t Lexeme %s\t Token %s\n",
-                   tk->lineNo,
-                   tk->lexeme,
-                   tokenTypeToString(tk->type));
+                 printf("Line no. %d\t Lexeme %s\t Token %s\n",
+                     tk->lineNo,
+                     tk->lexeme,
+                     tokenTypeName(tk->type));
         }
     }
 }
