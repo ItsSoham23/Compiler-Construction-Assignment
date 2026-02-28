@@ -705,14 +705,14 @@ void printTokens(const char* filename){
     }
 }
 
-int main(int argc, char** argv){
-    if(argc < 2){
-        fprintf(stderr, "Usage: %s <source-file>\n", argv[0]);
-        return 1;
-    }
+// int main(int argc, char** argv){
+//     if(argc < 2){
+//         fprintf(stderr, "Usage: %s <source-file>\n", argv[0]);
+//         return 1;
+//     }
 
-    printTokens(argv[1]);
-    printf("\n=== Source without comments ===\n");
-    removeComments(argv[1]);
-    return 0;
-}
+//     printTokens(argv[1]);
+//     printf("\n=== Source without comments ===\n");
+//     removeComments(argv[1]);
+//     return 0;
+// }
