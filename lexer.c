@@ -680,11 +680,16 @@ void removeComments(char *testcaseFile, char *cleanFile){
     if(!testcaseFile) return;
     FILE *in = fopen(testcaseFile, "r");
     if(!in) return;
-    FILE *out = cleanFile ? fopen(cleanFile, "w") : stdout;
-    if(!out){
-        fclose(in);
-        return;
+    FILE *out = NULL;
+    if(cleanFile){
+        out = fopen(cleanFile, "w");
+        if(!out){ fclose(in); return; }
     }
+
+#define EMIT(ch) do { \
+        fputc((ch), stdout); \
+        if(out) fputc((ch), out); \
+    } while(0)
 
     int c;
     int inComment = 0;
@@ -698,7 +703,7 @@ void removeComments(char *testcaseFile, char *cleanFile){
         if(inComment){
             if(c == '\n'){
                 if(lineHasContent)
-                    fputc('\n', out);
+                    EMIT('\n');
                 inComment = 0;
                 lineHasContent = 0;
                 pendingSpaces = 0;
@@ -711,7 +716,7 @@ void removeComments(char *testcaseFile, char *cleanFile){
 
         if(c == '\n'){
             if(lineHasContent)
-                fputc('\n', out);
+                EMIT('\n');
             lineHasContent = 0;
             pendingSpaces = 0;
             continue;
@@ -723,14 +728,16 @@ void removeComments(char *testcaseFile, char *cleanFile){
         }
 
         while(pendingSpaces-- > 0)
-            fputc(' ', out);
+            EMIT(' ');
         pendingSpaces = 0;
-        fputc(c, out);
+        EMIT(c);
         lineHasContent = 1;
     }
 
+#undef EMIT
+
     fclose(in);
-    if(out != stdout) fclose(out);
+    if(out) fclose(out);
 }
 
 /* ---------------- Required lexer API ---------------- */
