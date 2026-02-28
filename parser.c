@@ -106,251 +106,51 @@ Grammar loadGrammar(const char *grammarFile) {
     (void)grammarFile; /* not parsed; grammar is hard-coded */
     Grammar G;
     memset(&G, 0, sizeof(Grammar));
-    GrammarSymbol rhs[MAX_RHS_LEN];
-    int n;
 
-    /* R0: <program> ===> <otherFunctions> <mainFunction> */
-    n=0; rhs[n++]=NT(NT_OTHER_FUNCTIONS); rhs[n++]=NT(NT_MAIN_FUNCTION);
-    addRule(&G, NT_PROGRAM, rhs, n);
+    FILE *f = fopen(grammarFile, "r");
+    if (!f) {
+        fprintf(stderr, "Error: Could not open grammar file %s\n", grammarFile);
+        return G;
+    }
 
-    /* R1: <mainFunction> ===> TK_MAIN <stmts> TK_END */
-    n=0; rhs[n++]=T(TK_MAIN); rhs[n++]=NT(NT_STMTS); rhs[n++]=T(TK_END);
-    addRule(&G, NT_MAIN_FUNCTION, rhs, n);
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        char *lhs = strtok(line, ":=");
+        if (!lhs) continue;
+        lhs = trim(lhs);
 
-    /* R2: <otherFunctions> ===> <function> <otherFunctions> */
-    n=0; rhs[n++]=NT(NT_FUNCTION); rhs[n++]=NT(NT_OTHER_FUNCTIONS);
-    addRule(&G, NT_OTHER_FUNCTIONS, rhs, n);
+        char *rhs = strtok(NULL, "\n");
+        if (!rhs) continue;
+        rhs = trim(rhs);
 
-    /* R3: <otherFunctions> ===> eps */
-    addRule(&G, NT_OTHER_FUNCTIONS, rhs, 0);
+        NonTerminal lhsNT = lookupNonTerminal(lhs);
 
-    /* R4: <function> ===> TK_FUNID <input_par> <output_par> TK_SEM <stmts> TK_END */
-    n=0; rhs[n++]=T(TK_FUNID); rhs[n++]=NT(NT_INPUT_PAR); rhs[n++]=NT(NT_OUTPUT_PAR);
-    rhs[n++]=T(TK_SEM); rhs[n++]=NT(NT_STMTS); rhs[n++]=T(TK_END);
-    addRule(&G, NT_FUNCTION, rhs, n);
+        // Split RHS by '|'
+        char *alt = strtok(rhs, "|");
+        while (alt) {
+            GrammarSymbol rhsSymbols[MAX_RHS_LEN];
+            int n = 0;
 
-    /* R5: <input_par> ===> TK_INPUT TK_PARAMETER TK_LIST TK_SQL <parameter_list> TK_SQR */
-    n=0; rhs[n++]=T(TK_INPUT); rhs[n++]=T(TK_PARAMETER); rhs[n++]=T(TK_LIST);
-    rhs[n++]=T(TK_SQL); rhs[n++]=NT(NT_PARAMETER_LIST); rhs[n++]=T(TK_SQR);
-    addRule(&G, NT_INPUT_PAR, rhs, n);
+            alt = trim(alt);
+            char *sym = strtok(alt, " ");
+            while (sym) {
+                TokenType t = lookupTerminal(sym);
+                if (t != TK_ERROR) {
+                    rhsSymbols[n++] = T(t);
+                } else {
+                    NonTerminal nt = lookupNonTerminal(sym);
+                    rhsSymbols[n++] = NT(nt);
+                }
+                sym = strtok(NULL, " ");
+            }
 
-    /* R6: <output_par> ===> TK_OUTPUT TK_PARAMETER TK_LIST TK_SQL <parameter_list> TK_SQR */
-    n=0; rhs[n++]=T(TK_OUTPUT); rhs[n++]=T(TK_PARAMETER); rhs[n++]=T(TK_LIST);
-    rhs[n++]=T(TK_SQL); rhs[n++]=NT(NT_PARAMETER_LIST); rhs[n++]=T(TK_SQR);
-    addRule(&G, NT_OUTPUT_PAR, rhs, n);
+            // Use addRule() instead of manual assignment
+            addRule(&G, lhsNT, rhsSymbols, n);
 
-    /* R7: <output_par> ===> eps */
-    addRule(&G, NT_OUTPUT_PAR, rhs, 0);
+            alt = strtok(NULL, "|");
+        }
+    }
 
-    /* R8: <parameter_list> ===> <dataType> TK_ID <remaining_list> */
-    n=0; rhs[n++]=NT(NT_DATATYPE); rhs[n++]=T(TK_ID); rhs[n++]=NT(NT_REMAINING_LIST);
-    addRule(&G, NT_PARAMETER_LIST, rhs, n);
-
-    /* R9: <dataType> ===> <primitiveDatatype> */
-    n=0; rhs[n++]=NT(NT_PRIMITIVE_DATATYPE);
-    addRule(&G, NT_DATATYPE, rhs, n);
-
-    /* R10: <dataType> ===> <constructedDatatype> */
-    n=0; rhs[n++]=NT(NT_CONSTRUCTED_DATATYPE);
-    addRule(&G, NT_DATATYPE, rhs, n);
-
-    /* R11: <primitiveDatatype> ===> TK_INT */
-    n=0; rhs[n++]=T(TK_INT);
-    addRule(&G, NT_PRIMITIVE_DATATYPE, rhs, n);
-
-    /* R12: <primitiveDatatype> ===> TK_REAL */
-    n=0; rhs[n++]=T(TK_REAL);
-    addRule(&G, NT_PRIMITIVE_DATATYPE, rhs, n);
-
-    /* R13: <constructedDatatype> ===> TK_RECORD TK_RUID */
-    n=0; rhs[n++]=T(TK_RECORD); rhs[n++]=T(TK_RUID);
-    addRule(&G, NT_CONSTRUCTED_DATATYPE, rhs, n);
-
-    /* R14: <constructedDatatype> ===> TK_UNION TK_RUID */
-    n=0; rhs[n++]=T(TK_UNION); rhs[n++]=T(TK_RUID);
-    addRule(&G, NT_CONSTRUCTED_DATATYPE, rhs, n);
-
-    /* R15: <constructedDatatype> ===> TK_RUID */
-    n=0; rhs[n++]=T(TK_RUID);
-    addRule(&G, NT_CONSTRUCTED_DATATYPE, rhs, n);
-
-    /* R16: <remaining_list> ===> TK_COMMA <parameter_list> */
-    n=0; rhs[n++]=T(TK_COMMA); rhs[n++]=NT(NT_PARAMETER_LIST);
-    addRule(&G, NT_REMAINING_LIST, rhs, n);
-
-    /* R17: <remaining_list> ===> eps */
-    addRule(&G, NT_REMAINING_LIST, rhs, 0);
-
-    /* R18: <stmts> ===> <typeDefinitions> <declarations> <otherStmts> <returnStmt> */
-    n=0; rhs[n++]=NT(NT_TYPE_DEFINITIONS); rhs[n++]=NT(NT_DECLARATIONS);
-    rhs[n++]=NT(NT_OTHER_STMTS); rhs[n++]=NT(NT_RETURN_STMT);
-    addRule(&G, NT_STMTS, rhs, n);
-
-    /* R19: <typeDefinitions> ===> <actualOrRedefined> <typeDefinitions> */
-    n=0; rhs[n++]=NT(NT_ACTUAL_OR_REDEFINED); rhs[n++]=NT(NT_TYPE_DEFINITIONS);
-    addRule(&G, NT_TYPE_DEFINITIONS, rhs, n);
-
-    /* R20: <typeDefinitions> ===> eps */
-    addRule(&G, NT_TYPE_DEFINITIONS, rhs, 0);
-
-    /* R21: <actualOrRedefined> ===> <typeDefinition> */
-    n=0; rhs[n++]=NT(NT_TYPE_DEFINITION);
-    addRule(&G, NT_ACTUAL_OR_REDEFINED, rhs, n);
-
-    /* R22: <actualOrRedefined> ===> <definetypestmt> */
-    n=0; rhs[n++]=NT(NT_DEFINE_TYPE_STMT);
-    addRule(&G, NT_ACTUAL_OR_REDEFINED, rhs, n);
-
-    /* R23: <typeDefinition> ===> TK_RECORD TK_RUID <fieldDefinitions> TK_ENDRECORD */
-    n=0; rhs[n++]=T(TK_RECORD); rhs[n++]=T(TK_RUID); rhs[n++]=NT(NT_FIELD_DEFINITIONS); rhs[n++]=T(TK_ENDRECORD);
-    addRule(&G, NT_TYPE_DEFINITION, rhs, n);
-
-    /* R24: <typeDefinition> ===> TK_UNION TK_RUID <fieldDefinitions> TK_ENDUNION */
-    n=0; rhs[n++]=T(TK_UNION); rhs[n++]=T(TK_RUID); rhs[n++]=NT(NT_FIELD_DEFINITIONS); rhs[n++]=T(TK_ENDUNION);
-    addRule(&G, NT_TYPE_DEFINITION, rhs, n);
-
-    /* R25: <fieldDefinitions> ===> <fieldDefinition> <fieldDefinition> <moreFields> */
-    n=0; rhs[n++]=NT(NT_FIELD_DEFINITION); rhs[n++]=NT(NT_FIELD_DEFINITION); rhs[n++]=NT(NT_MORE_FIELDS);
-    addRule(&G, NT_FIELD_DEFINITIONS, rhs, n);
-
-    /* R26: <fieldDefinition> ===> TK_TYPE <fieldType> TK_COLON TK_FIELDID TK_SEM */
-    n=0; rhs[n++]=T(TK_TYPE); rhs[n++]=NT(NT_FIELD_TYPE); rhs[n++]=T(TK_COLON); rhs[n++]=T(TK_FIELDID); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_FIELD_DEFINITION, rhs, n);
-
-    /* R27: <fieldType> ===> <primitiveDatatype> */
-    n=0; rhs[n++]=NT(NT_PRIMITIVE_DATATYPE);
-    addRule(&G, NT_FIELD_TYPE, rhs, n);
-
-    /* R28: <fieldType> ===> <constructedDatatype> */
-    n=0; rhs[n++]=NT(NT_CONSTRUCTED_DATATYPE);
-    addRule(&G, NT_FIELD_TYPE, rhs, n);
-
-    /* R29: <moreFields> ===> <fieldDefinition> <moreFields> */
-    n=0; rhs[n++]=NT(NT_FIELD_DEFINITION); rhs[n++]=NT(NT_MORE_FIELDS);
-    addRule(&G, NT_MORE_FIELDS, rhs, n);
-
-    /* R30: <moreFields> ===> eps */
-    addRule(&G, NT_MORE_FIELDS, rhs, 0);
-
-    /* R31: <declarations> ===> <declaration> <declarations> */
-    n=0; rhs[n++]=NT(NT_DECLARATION); rhs[n++]=NT(NT_DECLARATIONS);
-    addRule(&G, NT_DECLARATIONS, rhs, n);
-
-    /* R32: <declarations> ===> eps */
-    addRule(&G, NT_DECLARATIONS, rhs, 0);
-
-    /* R33: <declaration> ===> TK_TYPE <dataType> TK_COLON TK_ID <global_or_not> TK_SEM */
-    n=0; rhs[n++]=T(TK_TYPE); rhs[n++]=NT(NT_DATATYPE); rhs[n++]=T(TK_COLON);
-    rhs[n++]=T(TK_ID); rhs[n++]=NT(NT_GLOBAL_OR_NOT); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_DECLARATION, rhs, n);
-
-    /* R34: <global_or_not> ===> TK_COLON TK_GLOBAL */
-    n=0; rhs[n++]=T(TK_COLON); rhs[n++]=T(TK_GLOBAL);
-    addRule(&G, NT_GLOBAL_OR_NOT, rhs, n);
-
-    /* R35: <global_or_not> ===> eps */
-    addRule(&G, NT_GLOBAL_OR_NOT, rhs, 0);
-
-    /* R36: <otherStmts> ===> <stmt> <otherStmts> */
-    n=0; rhs[n++]=NT(NT_STMT); rhs[n++]=NT(NT_OTHER_STMTS);
-    addRule(&G, NT_OTHER_STMTS, rhs, n);
-
-    /* R37: <otherStmts> ===> eps */
-    addRule(&G, NT_OTHER_STMTS, rhs, 0);
-
-    /* R38: <stmt> ===> <assignmentStmt> */
-    n=0; rhs[n++]=NT(NT_ASSIGNMENT_STMT);
-    addRule(&G, NT_STMT, rhs, n);
-
-    /* R39: <stmt> ===> <iterativeStmt> */
-    n=0; rhs[n++]=NT(NT_ITERATIVE_STMT);
-    addRule(&G, NT_STMT, rhs, n);
-
-    /* R40: <stmt> ===> <conditionalStmt> */
-    n=0; rhs[n++]=NT(NT_CONDITIONAL_STMT);
-    addRule(&G, NT_STMT, rhs, n);
-
-    /* R41: <stmt> ===> <ioStmt> */
-    n=0; rhs[n++]=NT(NT_IO_STMT);
-    addRule(&G, NT_STMT, rhs, n);
-
-    /* R42: <stmt> ===> <funCallStmt> */
-    n=0; rhs[n++]=NT(NT_FUN_CALL_STMT);
-    addRule(&G, NT_STMT, rhs, n);
-
-    /* R43: <assignmentStmt> ===> <singleOrRecId> TK_ASSIGNOP <arithmeticExpression> TK_SEM */
-    n=0; rhs[n++]=NT(NT_SINGLE_OR_REC_ID); rhs[n++]=T(TK_ASSIGNOP);
-    rhs[n++]=NT(NT_ARITHMETIC_EXPRESSION); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_ASSIGNMENT_STMT, rhs, n);
-
-    /* R44: <singleOrRecId> ===> TK_ID <option_single_constructed> */
-    n=0; rhs[n++]=T(TK_ID); rhs[n++]=NT(NT_OPTION_SINGLE_CONSTRUCTED);
-    addRule(&G, NT_SINGLE_OR_REC_ID, rhs, n);
-
-    /* R45: <option_single_constructed> ===> eps */
-    addRule(&G, NT_OPTION_SINGLE_CONSTRUCTED, rhs, 0);
-
-    /* R46: <option_single_constructed> ===> <oneExpansion> <moreExpansions> */
-    n=0; rhs[n++]=NT(NT_ONE_EXPANSION); rhs[n++]=NT(NT_MORE_EXPANSIONS);
-    addRule(&G, NT_OPTION_SINGLE_CONSTRUCTED, rhs, n);
-
-    /* R47: <oneExpansion> ===> TK_DOT TK_FIELDID */
-    n=0; rhs[n++]=T(TK_DOT); rhs[n++]=T(TK_FIELDID);
-    addRule(&G, NT_ONE_EXPANSION, rhs, n);
-
-    /* R48: <moreExpansions> ===> <oneExpansion> <moreExpansions> */
-    n=0; rhs[n++]=NT(NT_ONE_EXPANSION); rhs[n++]=NT(NT_MORE_EXPANSIONS);
-    addRule(&G, NT_MORE_EXPANSIONS, rhs, n);
-
-    /* R49: <moreExpansions> ===> eps */
-    addRule(&G, NT_MORE_EXPANSIONS, rhs, 0);
-
-    /* R50: <funCallStmt> ===> <outputParameters> TK_CALL TK_FUNID TK_WITH TK_PARAMETERS <inputParameters> TK_SEM */
-    n=0; rhs[n++]=NT(NT_OUTPUT_PARAMETERS); rhs[n++]=T(TK_CALL); rhs[n++]=T(TK_FUNID);
-    rhs[n++]=T(TK_WITH); rhs[n++]=T(TK_PARAMETERS); rhs[n++]=NT(NT_INPUT_PARAMETERS); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_FUN_CALL_STMT, rhs, n);
-
-    /* R51: <outputParameters> ===> TK_SQL <idList> TK_SQR TK_ASSIGNOP */
-    n=0; rhs[n++]=T(TK_SQL); rhs[n++]=NT(NT_ID_LIST); rhs[n++]=T(TK_SQR); rhs[n++]=T(TK_ASSIGNOP);
-    addRule(&G, NT_OUTPUT_PARAMETERS, rhs, n);
-
-    /* R52: <outputParameters> ===> eps */
-    addRule(&G, NT_OUTPUT_PARAMETERS, rhs, 0);
-
-    /* R53: <inputParameters> ===> TK_SQL <idList> TK_SQR */
-    n=0; rhs[n++]=T(TK_SQL); rhs[n++]=NT(NT_ID_LIST); rhs[n++]=T(TK_SQR);
-    addRule(&G, NT_INPUT_PARAMETERS, rhs, n);
-
-    /* R54: <iterativeStmt> ===> TK_WHILE TK_OP <booleanExpression> TK_CL <stmt> <otherStmts> TK_ENDWHILE */
-    n=0; rhs[n++]=T(TK_WHILE); rhs[n++]=T(TK_OP); rhs[n++]=NT(NT_BOOLEAN_EXPRESSION);
-    rhs[n++]=T(TK_CL); rhs[n++]=NT(NT_STMT); rhs[n++]=NT(NT_OTHER_STMTS); rhs[n++]=T(TK_ENDWHILE);
-    addRule(&G, NT_ITERATIVE_STMT, rhs, n);
-
-    /* R55: <conditionalStmt> ===> TK_IF TK_OP <booleanExpression> TK_CL TK_THEN <stmt> <otherStmts> <elsePart> */
-    n=0; rhs[n++]=T(TK_IF); rhs[n++]=T(TK_OP); rhs[n++]=NT(NT_BOOLEAN_EXPRESSION);
-    rhs[n++]=T(TK_CL); rhs[n++]=T(TK_THEN); rhs[n++]=NT(NT_STMT);
-    rhs[n++]=NT(NT_OTHER_STMTS); rhs[n++]=NT(NT_ELSE_PART);
-    addRule(&G, NT_CONDITIONAL_STMT, rhs, n);
-
-    /* R56: <elsePart> ===> TK_ELSE <stmt> <otherStmts> TK_ENDIF */
-    n=0; rhs[n++]=T(TK_ELSE); rhs[n++]=NT(NT_STMT); rhs[n++]=NT(NT_OTHER_STMTS); rhs[n++]=T(TK_ENDIF);
-    addRule(&G, NT_ELSE_PART, rhs, n);
-
-    /* R57: <elsePart> ===> TK_ENDIF */
-    n=0; rhs[n++]=T(TK_ENDIF);
-    addRule(&G, NT_ELSE_PART, rhs, n);
-
-    /* R58: <ioStmt> ===> TK_READ TK_OP <var> TK_CL TK_SEM */
-    n=0; rhs[n++]=T(TK_READ); rhs[n++]=T(TK_OP); rhs[n++]=NT(NT_VAR); rhs[n++]=T(TK_CL); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_IO_STMT, rhs, n);
-
-    /* R59: <ioStmt> ===> TK_WRITE TK_OP <var> TK_CL TK_SEM */
-    n=0; rhs[n++]=T(TK_WRITE); rhs[n++]=T(TK_OP); rhs[n++]=NT(NT_VAR); rhs[n++]=T(TK_CL); rhs[n++]=T(TK_SEM);
-    addRule(&G, NT_IO_STMT, rhs, n);
-
-    /* B1: <arithmeticExpression> ===> <term> <expPrime> */
-    n=0; rhs[n++]=NT(NT_TERM); rhs[n++]=NT(NT_EXP_PRIME);
-    addRule(&G, NT_ARITHMETIC_EXPRESSION, rhs, n);
 
     /* B2a: <expPrime> ===> <lowPrecedenceOperators> <term> <expPrime> */
     static int isHardSynch(TokenType t) {
