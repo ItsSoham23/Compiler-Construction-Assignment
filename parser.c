@@ -507,6 +507,29 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                         eTk->errMsg ? eTk->errMsg : eTk->lexeme);
             idx++;
         }
+        /* Recovery after lexical error: if the expected terminal is
+         * TK_ASSIGNOP and it was garbled by the lexer, collapse the whole
+         * broken assignment RHS silently: pop TK_ASSIGNOP (and the
+         * arithmeticExpression below it) from the stack and skip tokens
+         * up to (but not including) TK_SEM so the statement ends cleanly
+         * with only the one lexical error. */
+        if (idx < tokens.size && sp >= 2) {
+            int stackTop = stack[sp - 1].sym;
+            if (stackTop == (int)TK_ASSIGNOP &&
+                tokens.buf[idx].type != TK_ASSIGNOP) {
+                /* skip token garbage before the closing ; */
+                while (idx < tokens.size &&
+                       tokens.buf[idx].type != TK_SEM &&
+                       tokens.buf[idx].type != TK_EOF)
+                    idx++;
+                /* pop TK_ASSIGNOP off the stack (no error reported) */
+                sp--;
+                /* if arithmeticExpression is now on top, pop it too */
+                if (sp > 0 && stack[sp-1].sym == -(NT_ARITHMETIC_EXPRESSION + 1))
+                    sp--;
+                /* TK_SEM now matches the TK_SEM waiting on the stack */
+            }
+        }
         if (idx >= tokens.size) break;
 
         Token cur = tokens.buf[idx];
@@ -592,6 +615,34 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                 /* Normal: expand the rule */
                 Rule *r = &G->rules[prod];
                 if (r->rhsLen == 0) {
+                    /* epsilon expansion.
+                     * Special case: when otherStmts expands to epsilon with
+                     * TK_ENDIF as lookahead, check whether TK_ENDIF is already
+                     * waiting on the stack (meaning we are inside an elsePart
+                     * that legitimately expects endif).  If TK_ENDIF is nowhere
+                     * on the stack, endif is in the wrong scope — report it. */
+                    if (nt == NT_OTHER_STMTS && cur.type == TK_ENDIF) {
+                        int endifOnStack = 0;
+                        for (int si = sp - 1; si >= 0; si--) {
+                            /* TK_ENDIF terminal already pushed (elsePart expanded) */
+                            if (stack[si].sym == (int)TK_ENDIF) {
+                                endifOnStack = 1; break;
+                            }
+                            /* elsePart NT not yet expanded — it will produce TK_ENDIF */
+                            if (stack[si].sym == -(NT_ELSE_PART + 1)) {
+                                endifOnStack = 1; break;
+                            }
+                        }
+                        if (!endifOnStack) {
+                            fprintf(stderr,
+                                "Line %u\tError: Invalid token %s encountered"
+                                " with value %s stack top %s\n",
+                                cur.lineNo,
+                                tokenTypeName(cur.type), cur.lexeme,
+                                nonTerminalName(nt));
+                            syntaxErrors++;
+                        }
+                    }
                     /* epsilon – nothing to push */
                 } else {
                     ParseTreeNode *children[MAX_RHS_LEN];
