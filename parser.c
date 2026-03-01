@@ -463,29 +463,22 @@ void freeParseTree(ParseTreeNode *node) {
 
 ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                                 ParseTable *T, FirstAndFollow *F) {
-    (void)F; /* not needed after parse table built */
     State s = initializeState(testcaseFile);
     TokenList tokens = scan(&s);
 
-    /* report lexical errors and drop comment tokens from the stream */
-    int write = 0;
+    /* Drop comment tokens; keep errors and valid tokens in stream order.
+       Lexical errors will be printed inline during the parse loop below. */
+    int write_pos = 0;
     for (int i = 0; i < tokens.size; ++i) {
-        Token tk = tokens.buf[i];
-        if (tk.type == TK_ERROR && tk.errMsg && strcmp(tk.errMsg, "EOF") != 0) {
-            printf("Line %-4u  LEXICAL ERROR: %s\n", tk.lineNo,
-                   tk.errMsg ? tk.errMsg : tk.lexeme);
-        }
-        if (tk.type != TK_COMMENT) {
-            tokens.buf[write++] = tk;
-        }
+        if (tokens.buf[i].type != TK_COMMENT)
+            tokens.buf[write_pos++] = tokens.buf[i];
     }
-    tokens.size = write;
+    tokens.size = write_pos;
 
+    /* Append EOF sentinel */
     Token eofTk;
+    memset(&eofTk, 0, sizeof(eofTk));
     eofTk.type = TK_EOF;
-    eofTk.lineNo = 0;
-    eofTk.lexeme[0] = '\0';
-    eofTk.errMsg = NULL;
     tokens.buf = (Token *)realloc(tokens.buf, sizeof(Token) * (tokens.size + 1));
     tokens.buf[tokens.size++] = eofTk;
 
@@ -495,137 +488,199 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
     typedef struct { int sym; ParseTreeNode *node; } StackEntry;
     StackEntry stack[10000];
     int sp = 0;
-    stack[sp].sym = -(NT_PROGRAM + 1);
+    stack[sp].sym  = -(NT_PROGRAM + 1);
     stack[sp].node = PT->root;
     sp++;
 
-    int idx = 0;
+    int idx          = 0;
     int syntaxErrors = 0;
     const int MAX_ERRORS = 1000;
+    unsigned int prevLine = 1; /* line of the last successfully consumed terminal */
 
-    while (sp > 0 && idx < tokens.size) {
-        StackEntry top = stack[--sp];
-        int sym = top.sym;
-        ParseTreeNode *node = top.node;
+    while (sp > 0 && idx < tokens.size && syntaxErrors < MAX_ERRORS) {
+
+        /* --- Print and skip all pending lexical errors inline --- */
+        while (idx < tokens.size && tokens.buf[idx].type == TK_ERROR) {
+            Token *eTk = &tokens.buf[idx];
+            if (eTk->errMsg && strcmp(eTk->errMsg, "EOF") != 0)
+                fprintf(stderr, "Line %u\tError: %s\n", eTk->lineNo,
+                        eTk->errMsg ? eTk->errMsg : eTk->lexeme);
+            idx++;
+        }
+        if (idx >= tokens.size) break;
+
         Token cur = tokens.buf[idx];
+        StackEntry top = stack[--sp];
+        int sym        = top.sym;
+        ParseTreeNode *node = top.node;
 
-        /* skip any leftover lexical-error tokens before parsing logic */
-        // if (cur.type == TK_ERROR) {
-        //     /* lexical errors were already reported earlier; drop this token */
-        //     idx++;
-        //     continue;
-        // }
-
+        /* ---- Terminal on stack ---- */
         if (sym >= 0) {
-            if (sym == cur.type) {
-                node->isLeaf = 1;
-                node->token = cur;
+            if (sym == (int)cur.type) {
+                /* Normal match */
+                node->isLeaf   = 1;
+                node->token    = cur;
+                prevLine       = cur.lineNo;
                 idx++;
             } else {
-                /* Report the error */
-                printf("Line %-4u  Syntax error: expected %s but found %s\n",
-                    cur.lineNo,
-                    tokenTypeName((TokenType)sym),
-                    tokenTypeName(cur.type));
-                syntaxErrors++;
-                if (syntaxErrors > MAX_ERRORS) break;
+                /* Terminal mismatch.
+                 * C1 (missing terminal): lookahead belongs to the outer context
+                 *   → insert synthetic terminal, do NOT consume lookahead.
+                 * C2 (spurious lookahead): lookahead is garbage
+                 *   → consume lookahead, synthetic terminal stays.
+                 *
+                 * Use prevLine as the error line when the mismatched token is
+                 * on a later line (catches missing `;` at end-of-line). */
+                unsigned int errLine = (cur.lineNo > prevLine) ? prevLine : cur.lineNo;
 
-                /* Attempt local insertion: create a synthetic token for the expected terminal
-                and attach it to the parse tree. Do NOT consume the current token. */
-                node->isLeaf = 1;
-                node->token.type = (TokenType)sym;
-                node->token.lineNo = cur.lineNo;
-                strcpy(node->token.lexeme, "<missing>");
-                node->token.errMsg = NULL;
+                /* Synthetic terminal in parse tree */
+                node->isLeaf         = 1;
+                node->token.type     = (TokenType)sym;
+                node->token.lineNo   = errLine;
+                node->token.lexeme[0]= '\0';
+                node->token.errMsg   = NULL;
 
-                /* If the same error repeats many times, fallback to panic-mode using FOLLOW sets */
-                static int repeatMissingCount = 0;
-                repeatMissingCount++;
-                if (repeatMissingCount > 3) {
-                    NonTerminal parentNt = NT_PROGRAM;
-                    if (node->parent && !node->parent->isLeaf) parentNt = node->parent->nt;
-
-                    while (idx < tokens.size && !F->followSet[parentNt][ tokens.buf[idx].type ]) {
-                        idx++;
+                /* Decide C1 vs C2: check if lookahead is in FOLLOW of any ancestor NT,
+                 * OR if lookahead directly matches a terminal already waiting in the
+                 * top few stack slots (strong signal the expected token is simply absent),
+                 * OR if lookahead is in FIRST of the immediate next NT on the stack
+                 * (indicates the expected terminal is missing and the NT's content follows). */
+                int isC1 = 0;
+                int scanLimit = (sp > 8) ? sp - 8 : 0;
+                for (int si = sp - 1; si >= scanLimit && !isC1; si--) {
+                    if (stack[si].sym < 0) {
+                        /* Non-terminal: check FOLLOW set */
+                        NonTerminal anc = (NonTerminal)(-(stack[si].sym) - 1);
+                        if (cur.type < NUM_TERMINALS && F->followSet[anc][cur.type])
+                            isC1 = 1;
+                    } else {
+                        /* Terminal: lookahead matches something waiting on stack */
+                        if (stack[si].sym == (int)cur.type)
+                            isC1 = 1;
                     }
-                    repeatMissingCount = 0;
                 }
-                /* continue with same idx so current token is reprocessed */
-            }
-            } else {
-            NonTerminal nt = (NonTerminal)(-sym - 1);
-            if (cur.type == TK_ERROR) {
-                idx++;
-                continue;
-            }
-            int prod = PT_ERROR;
-            if (cur.type >= 0 && cur.type < NUM_TERMINALS) {
-                prod = T->table[nt][cur.type];
-            }
-            if (prod == PT_ERROR) {
-                /* If current token is in FOLLOW(nt), assume the nonterminal is missing.
-                Report missing nonterminal and DO NOT consume the token (so 'else' can sync). */
-                if (cur.type >= 0 && cur.type < NUM_TERMINALS && F->followSet[nt][cur.type]) {
-                    printf("Line %-4u  Syntax error: missing %s\n",
-                        cur.lineNo, nonTerminalName(nt));
-                    syntaxErrors++;
-                    /* do NOT idx++ here */
-                } else {
-                    /* Not in FOLLOW: skip the token as garbage */
-                    printf("Line %-4u  Syntax error: unexpected token %s\n",
-                        cur.lineNo, tokenTypeName(cur.type));
-                    syntaxErrors++;
-                    idx++;
+                /* Also C1 if lookahead is in FIRST of the very next NT just below:
+                 * the expected terminal is absent, but the NT that follows can
+                 * start with cur (e.g. TK_ASSIGNOP missing, TK_NUM starts arithExpr). */
+                if (!isC1 && sp - 1 >= 0 && stack[sp-1].sym < 0) {
+                    NonTerminal nextNT = (NonTerminal)(-(stack[sp-1].sym) - 1);
+                    if (cur.type < NUM_TERMINALS && F->firstSet[nextNT][cur.type])
+                        isC1 = 1;
                 }
-            }else if (prod == PT_SYNCH) {
-                printf("Line %-4u  Syntax error: missing %s\n",
-                       cur.lineNo,
-                       nonTerminalName(nt));
+
+                fprintf(stderr,
+                    "Line %u\tError: The token %s for lexeme %s  does not match"
+                    " with the expected token %s\n",
+                    errLine,
+                    tokenTypeName(cur.type), cur.lexeme,
+                    tokenTypeName((TokenType)sym));
                 syntaxErrors++;
-            } else {
+
+                if (!isC1)
+                    idx++; /* C2: consume spurious token */
+                /* C1: don't consume; let parent context handle it */
+            }
+
+        /* ---- Non-terminal on stack ---- */
+        } else {
+            NonTerminal nt  = (NonTerminal)(-sym - 1);
+            int prod = PT_ERROR;
+            if (cur.type >= 0 && cur.type < NUM_TERMINALS)
+                prod = T->table[nt][cur.type];
+
+            if (prod >= 0) {
+                /* Normal: expand the rule */
                 Rule *r = &G->rules[prod];
-                int n = r->rhsLen;
-                if (n == 0) {
+                if (r->rhsLen == 0) {
                     /* epsilon – nothing to push */
                 } else {
                     ParseTreeNode *children[MAX_RHS_LEN];
-                    int childSym[MAX_RHS_LEN];
+                    int            childSym[MAX_RHS_LEN];
                     int childCount = 0;
-                    for (int i = 0; i < n; ++i) {
+                    for (int i = 0; i < r->rhsLen; ++i) {
                         GrammarSymbol gs = r->rhs[i];
                         int sVal;
                         ParseTreeNode *child;
                         if (gs.kind == SYM_TERMINAL) {
-                            sVal = gs.sym.terminal;
+                            sVal  = gs.sym.terminal;
                             child = newNode(sVal);
                         } else {
-                            sVal = -(gs.sym.nonTerminal + 1);
+                            sVal  = -(gs.sym.nonTerminal + 1);
                             child = newNode(sVal);
                         }
-                        child->parent = node;
+                        child->parent     = node;
                         children[childCount] = child;
                         childSym[childCount] = sVal;
                         childCount++;
                     }
                     for (int i = 0; i < childCount; ++i) {
                         if (i == 0) node->firstChild = children[i];
-                        else children[i - 1]->nextSibling = children[i];
+                        else children[i-1]->nextSibling = children[i];
                     }
                     for (int i = childCount - 1; i >= 0; --i) {
-                        stack[sp].sym = childSym[i];
+                        stack[sp].sym  = childSym[i];
                         stack[sp].node = children[i];
                         sp++;
                     }
+                }
+
+            } else if (prod == PT_SYNCH) {
+                /* Lookahead is in FOLLOW(nt): NT is simply absent.
+                 * Structural END-family anchors (end, endif, endwhile, endrecord,
+                 * endunion, eof) close a scope — the NT being skipped is a trailing
+                 * optional element (e.g. returnStmt before `end`): pop silently.
+                 * For other FOLLOW tokens, report the missing NT as an error. */
+                int endAnchor = (cur.type == TK_END      || cur.type == TK_ENDWHILE  ||
+                                 cur.type == TK_ENDRECORD || cur.type == TK_ENDUNION  ||
+                                 cur.type == TK_EOF);
+                if (!endAnchor) {
+                    fprintf(stderr,
+                        "Line %u\tError: Invalid token %s encountered with value %s"
+                        " stack top %s\n",
+                        cur.lineNo,
+                        tokenTypeName(cur.type), cur.lexeme,
+                        nonTerminalName(nt));
+                    syntaxErrors++;
+                }
+                /* NT already popped; lookahead stays for parent */
+
+            } else {
+                /* PT_ERROR: lookahead not in FIRST(nt) or FOLLOW(nt).
+                 *
+                 * If the lookahead is a structural anchor (else, endif, end,
+                 * then, while-end, ;, return, etc.) it almost certainly belongs
+                 * to an outer context and is NOT garbage to skip.  Pop the NT
+                 * silently so the outer rule can consume the anchor cleanly.
+                 * This prevents expression-level NTs (termPrime, expPrime, …)
+                 * from eating structural tokens and causing error cascades.
+                 *
+                 * For true garbage tokens, report and consume. */
+                int isAnchor = (cur.type == TK_ELSE   || cur.type == TK_ENDIF  ||
+                                cur.type == TK_THEN   || cur.type == TK_END    ||
+                                cur.type == TK_ENDWHILE|| cur.type == TK_ENDRECORD ||
+                                cur.type == TK_ENDUNION|| cur.type == TK_SQR   ||
+                                cur.type == TK_RETURN || cur.type == TK_SEM    ||
+                                cur.type == TK_EOF);
+                if (isAnchor) {
+                    /* silently pop NT; anchor stays for parent context */
+                } else {
+                    fprintf(stderr,
+                        "Line %u\tError: Invalid token %s encountered with value %s"
+                        " stack top %s\n",
+                        cur.lineNo,
+                        tokenTypeName(cur.type), cur.lexeme,
+                        nonTerminalName(nt));
+                    syntaxErrors++;
+                    idx++; /* consume garbage token */
                 }
             }
         }
     }
 
-    if (syntaxErrors == 0) {
+    if (syntaxErrors == 0)
         printf("Input source code is syntactically correct...........\n");
-    } else {
+    else
         printf("Input source code has %d syntax error(s)\n", syntaxErrors);
-    }
 
     return PT;
 }

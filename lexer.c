@@ -590,6 +590,18 @@ TokenList scan(State *s){
                     emitToken(s, TK_ASSIGNOP, "<---", 4);
                     break;
                 }
+                /* Partial match (1 or 2 dashes): not a valid token.
+                   The consumed dashes are already gone from the input.
+                   Emit an error for the partial sequence. */
+                if(dashCount > 0){
+                    char errbuf[32];
+                    if(dashCount == 2)
+                        snprintf(errbuf, sizeof(errbuf), "Unknown pattern <<-->");
+                    else
+                        snprintf(errbuf, sizeof(errbuf), "Unknown pattern <<->");
+                    appendErrorToTokenList(s, errbuf);
+                    break;
+                }
                 for(int i = 0; i < dashCount; i++)
                     unreadChar(s, '-');
                 if(peekChar(s) == '='){
