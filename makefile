@@ -1,3 +1,9 @@
+# Group 1
+# Romit Jain - 2023A7PS0021P
+# Soham Vinay Deshmukh - 2023A7PS0025P
+# Nishant Amarish Pradhan - 2023A7PS0030P
+# Devesh Saraogi - 2023A7PS0242P
+
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
 LDFLAGS = -lm

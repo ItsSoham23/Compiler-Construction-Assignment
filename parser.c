@@ -1,3 +1,11 @@
+/*
+Group 1
+Romit Jain - 2023A7PS0021P
+Soham Vinay Deshmukh - 2023A7PS0025P
+Nishant Amarish Pradhan - 2023A7PS0030P
+Devesh Saraogi - 2023A7PS0242P
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,6 +93,39 @@ static int lookupNonTerminal(const char *s) {
 const char *nonTerminalName(NonTerminal nt) {
     if (nt < 0 || nt >= NUM_NON_TERMINALS) return "<unknown>";
     return NT_NAMES[nt];
+}
+
+/* ------------------------------------------------------------------
+ * Minimal declaration symbol table (per function/main scope)
+ * ------------------------------------------------------------------ */
+
+#define MAX_DECL_IDS 2048
+
+typedef struct {
+    char names[MAX_DECL_IDS][MAX_LEXEME_LEN];
+    int count;
+    int active;
+} DeclScope;
+
+static void resetDeclScope(DeclScope *scope) {
+    if (!scope) return;
+    scope->count = 0;
+}
+
+static int isDeclaredInScope(DeclScope *scope, const char *name) {
+    if (!scope || !name) return 0;
+    for (int i = 0; i < scope->count; ++i) {
+        if (strcmp(scope->names[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
+static void addDeclaredInScope(DeclScope *scope, const char *name) {
+    if (!scope || !name) return;
+    if (scope->count >= MAX_DECL_IDS) return;
+    strncpy(scope->names[scope->count], name, MAX_LEXEME_LEN - 1);
+    scope->names[scope->count][MAX_LEXEME_LEN - 1] = '\0';
+    scope->count++;
 }
 
 /* convert token string (TK_...) to TokenType enum */
@@ -465,6 +506,8 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                                 ParseTable *T, FirstAndFollow *F) {
     State s = initializeState(testcaseFile);
     TokenList tokens = scan(&s);
+    DeclScope declScope;
+    memset(&declScope, 0, sizeof(declScope));
 
     /* Drop comment tokens; keep errors and valid tokens in stream order.
        Lexical errors will be printed inline during the parse loop below. */
@@ -544,6 +587,28 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                 node->isLeaf   = 1;
                 node->token    = cur;
                 prevLine       = cur.lineNo;
+
+                if (cur.type == TK_FUNID || cur.type == TK_MAIN) {
+                    resetDeclScope(&declScope);
+                    declScope.active = 1;
+                } else if (cur.type == TK_END) {
+                    declScope.active = 0;
+                }
+
+                if (cur.type == TK_ID &&
+                    declScope.active &&
+                    node->parent && !node->parent->isLeaf &&
+                    node->parent->nt == NT_DECLARATION) {
+                    if (isDeclaredInScope(&declScope, cur.lexeme)) {
+                        fprintf(stderr,
+                                "Line %u\tError: Variable '%s' is redeclared in the same scope\n",
+                                cur.lineNo, cur.lexeme);
+                        syntaxErrors++;
+                    } else {
+                        addDeclaredInScope(&declScope, cur.lexeme);
+                    }
+                }
+
                 idx++;
             } else {
                 /* Terminal mismatch.

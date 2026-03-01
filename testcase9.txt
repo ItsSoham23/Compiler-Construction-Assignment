@@ -1,0 +1,21 @@
+%Test Case 9: Redeclaration check testcase
+%Expected: redeclaration error for variable b3 in _main scope
+
+_test1 input parameter list [int x1];
+	type int : a1;
+	a1 <--- x1;
+	return;
+end
+
+_test2 input parameter list [int x2];
+	type int : a1;
+	a1 <--- x2;
+	return;
+end
+_main
+	type int : b3;
+	type int : b3;
+	b3 <--- 10;
+	write(b3);
+	return;
+end
