@@ -509,21 +509,50 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
         ParseTreeNode *node = top.node;
         Token cur = tokens.buf[idx];
 
+        /* skip any leftover lexical-error tokens before parsing logic */
+        // if (cur.type == TK_ERROR) {
+        //     /* lexical errors were already reported earlier; drop this token */
+        //     idx++;
+        //     continue;
+        // }
+
         if (sym >= 0) {
             if (sym == cur.type) {
                 node->isLeaf = 1;
                 node->token = cur;
                 idx++;
             } else {
+                /* Report the error */
                 printf("Line %-4u  Syntax error: expected %s but found %s\n",
-                       cur.lineNo,
-                       tokenTypeName((TokenType)sym),
-                       tokenTypeName(cur.type));
+                    cur.lineNo,
+                    tokenTypeName((TokenType)sym),
+                    tokenTypeName(cur.type));
                 syntaxErrors++;
                 if (syntaxErrors > MAX_ERRORS) break;
-                idx++;
+
+                /* Attempt local insertion: create a synthetic token for the expected terminal
+                and attach it to the parse tree. Do NOT consume the current token. */
+                node->isLeaf = 1;
+                node->token.type = (TokenType)sym;
+                node->token.lineNo = cur.lineNo;
+                strcpy(node->token.lexeme, "<missing>");
+                node->token.errMsg = NULL;
+
+                /* If the same error repeats many times, fallback to panic-mode using FOLLOW sets */
+                static int repeatMissingCount = 0;
+                repeatMissingCount++;
+                if (repeatMissingCount > 3) {
+                    NonTerminal parentNt = NT_PROGRAM;
+                    if (node->parent && !node->parent->isLeaf) parentNt = node->parent->nt;
+
+                    while (idx < tokens.size && !F->followSet[parentNt][ tokens.buf[idx].type ]) {
+                        idx++;
+                    }
+                    repeatMissingCount = 0;
+                }
+                /* continue with same idx so current token is reprocessed */
             }
-        } else {
+            } else {
             NonTerminal nt = (NonTerminal)(-sym - 1);
             if (cur.type == TK_ERROR) {
                 idx++;
@@ -534,13 +563,21 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                 prod = T->table[nt][cur.type];
             }
             if (prod == PT_ERROR) {
-                printf("Line %-4u  Syntax error: unexpected token %s\n",
-                       cur.lineNo,
-                       tokenTypeName(cur.type));
-                syntaxErrors++;
-                if (syntaxErrors > MAX_ERRORS) break;
-                idx++;
-            } else if (prod == PT_SYNCH) {
+                /* If current token is in FOLLOW(nt), assume the nonterminal is missing.
+                Report missing nonterminal and DO NOT consume the token (so 'else' can sync). */
+                if (cur.type >= 0 && cur.type < NUM_TERMINALS && F->followSet[nt][cur.type]) {
+                    printf("Line %-4u  Syntax error: missing %s\n",
+                        cur.lineNo, nonTerminalName(nt));
+                    syntaxErrors++;
+                    /* do NOT idx++ here */
+                } else {
+                    /* Not in FOLLOW: skip the token as garbage */
+                    printf("Line %-4u  Syntax error: unexpected token %s\n",
+                        cur.lineNo, tokenTypeName(cur.type));
+                    syntaxErrors++;
+                    idx++;
+                }
+            }else if (prod == PT_SYNCH) {
                 printf("Line %-4u  Syntax error: missing %s\n",
                        cur.lineNo,
                        nonTerminalName(nt));
