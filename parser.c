@@ -676,25 +676,21 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                 }
 
             } else if (prod == PT_SYNCH) {
-                /* Lookahead is in FOLLOW(nt): NT is simply absent.
-                 * Structural END-family anchors (end, endif, endwhile, endrecord,
-                 * endunion, eof) close a scope — the NT being skipped is a trailing
-                 * optional element (e.g. returnStmt before `end`): pop silently.
-                 * For other FOLLOW tokens, report the missing NT as an error. */
                 int endAnchor = (cur.type == TK_END      || cur.type == TK_ENDWHILE  ||
-                                 cur.type == TK_ENDRECORD || cur.type == TK_ENDUNION  ||
-                                 cur.type == TK_EOF);
-                if (!endAnchor) {
+                                cur.type == TK_ENDRECORD || cur.type == TK_ENDUNION  ||
+                                cur.type == TK_EOF);
+                if (!endAnchor || nt == NT_RETURN_STMT) {
+                    // For missing returnStmt, blame prevLine (where return should have been),
+                    // not cur.lineNo (the 'end' token that revealed the absence).
+                    unsigned int errLine = (nt == NT_RETURN_STMT) ? prevLine : cur.lineNo;
                     fprintf(stderr,
                         "Line %u\tError: Invalid token %s encountered with value %s"
                         " stack top %s\n",
-                        cur.lineNo,
+                        errLine,
                         tokenTypeName(cur.type), cur.lexeme,
                         nonTerminalName(nt));
                     syntaxErrors++;
                 }
-                /* NT already popped; lookahead stays for parent */
-
             } else {
                 /* PT_ERROR: lookahead not in FIRST(nt) or FOLLOW(nt).
                  *
