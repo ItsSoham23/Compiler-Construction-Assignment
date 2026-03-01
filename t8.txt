@@ -1,0 +1,202 @@
+_alpha input parameter list [int b2c, int c3d, int d4b]
+output parameter list [int b5c, int c6d];
+
+type int : d5b;
+type int : d6c;
+
+d5b <--- b2c + c3d;
+d6c <--- d5b * d4b;
+
+b5c <--- d6c + 100;
+c6d <--- b5c - 50;
+
+return [b5c, c6d];
+end
+
+
+_beta input parameter list [real b3c, real c4d]
+output parameter list [real d5e];
+
+type real : b6c;
+type real : c7d;
+
+b6c <--- b3c * 2.00;
+c7d <--- b6c / 3.00;
+
+d5e <--- (b6c + c7d) * 4.00;
+
+return [d5e];
+end
+
+
+_gamma input parameter list [record #ledger b2d, record #ledger c3b]
+output parameter list [record #ledger d4c];
+
+d4c <--- b2d + c3b;
+
+return [d4c];
+end
+
+
+_delta input parameter list [int b2c];
+type int : c3d;
+type int : d4b;
+
+c3d <--- b2c + 1;
+d4b <--- c3d * 2;
+
+write(d4b);
+
+return;
+end
+
+
+
+_main
+
+record #ledger
+type int: debit;
+type real: credit;
+endrecord
+
+union #data
+type int: id;
+type real: value;
+endunion
+
+definetype union #data as #newdata
+
+type int : b2c : global;
+type int : c3d;
+type int : d4b;
+type int : b5c;
+type int : c6d;
+type int : d7b;
+
+type real : b3c;
+type real : c4d;
+type real : d5e;
+
+type record #ledger : b2d;
+type record #ledger : c3b;
+type record #ledger : d4c;
+
+type union #data : b6c;
+
+read(b2c);
+read(c3d);
+read(d4b);
+
+b5c <--- b2c + c3d;
+c6d <--- (b5c * d4b);
+d7b <--- (c6d - b2c);
+
+b3c <--- 12.34;
+c4d <--- 45.67;
+d5e <--- 23.45E+05;
+
+if(b2c < c3d)
+then
+b5c <--- b5c + 1;
+else
+b5c <--- b5c - 1;
+endif
+
+if((b2c < c3d) &&& (c3d != d4b))
+then
+if(d4b >= b5c)
+then
+d7b <--- d7b + 10;
+else
+d7b <--- d7b - 10;
+endif
+else
+c6d <--- c6d + 5;
+endif
+
+while(b2c <= c3d)
+b2c <--- b2c + 1;
+write(b2c);
+endwhile
+
+while((b2c < d4b) @@@ (c3d > 0))
+c3d <--- c3d - 1;
+write(c3d);
+endwhile
+
+while(~(b2c == d4b))
+b2c <--- b2c + 2;
+endwhile
+
+[b5c, c6d] <--- call _alpha with parameters [b2c, c3d, d4b];
+
+[d5e] <--- call _beta with parameters [b3c, c4d];
+
+call _delta with parameters [b2c];
+
+b2d.debit <--- 100;
+b2d.credit <--- 10.50;
+
+c3b.debit <--- 200;
+c3b.credit <--- 20.75;
+
+d4c <--- b2d + c3b;
+
+[d4c] <--- call _gamma with parameters [b2d, c3b];
+
+write(d4c);
+
+b6c.id <--- 10;
+write(b6c.id);
+
+b5c <--- ( (b2c + c3d) * (d4b - b5c) );
+c6d <--- ( b5c / (d7b + 1) );
+
+b5c <--- ( ( (b2c + 3) * 4 ) - ( (c3d * 2) / 5 ) );
+
+if((b2c < c3d) &&& ((d4b > b5c) @@@ (c6d != d7b)))
+then
+b5c <--- b5c + 100;
+else
+b5c <--- b5c - 100;
+endif
+
+while((b2c < 100) &&& (c3d < 200))
+b2c <--- b2c + 5;
+c3d <--- c3d + 3;
+write(b2c);
+write(c3d);
+endwhile
+
+if(b2c >= c3d)
+then
+b2c <--- b2c - c3d;
+endif
+
+if(~(b2c < d4b))
+then
+d4b <--- d4b + 1;
+else
+d4b <--- d4b - 1;
+endif
+
+b5c <--- b5c + c6d;
+c6d <--- b5c - d7b;
+d7b <--- c6d * 2;
+
+b5c <--- b5c / 2;
+c6d <--- c6d / 3;
+
+b3c <--- b3c + 1.00;
+c4d <--- c4d * 2.00;
+d5e <--- c4d / 5.00;
+
+write(b5c);
+write(c6d);
+write(d7b);
+write(b3c);
+write(c4d);
+write(d5e);
+
+return;
+end
