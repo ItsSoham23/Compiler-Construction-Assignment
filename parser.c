@@ -508,26 +508,51 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
             idx++;
         }
         /* Recovery after lexical error: if the expected terminal is
-         * TK_ASSIGNOP and it was garbled by the lexer, collapse the whole
-         * broken assignment RHS silently: pop TK_ASSIGNOP (and the
-         * arithmeticExpression below it) from the stack and skip tokens
-         * up to (but not including) TK_SEM so the statement ends cleanly
-         * with only the one lexical error. */
+         * TK_ASSIGNOP and it was garbled by the lexer, previously the
+         * parser would silently collapse the whole broken assignment RHS
+         * and skip tokens up to TK_SEM with no diagnostic. That swallowed
+         * missing-semicolon errors and mis-attributed line numbers.  To
+         * improve diagnostics we now always emit a clear error before
+         * skipping, and we avoid skipping when the lookahead is a
+         * structural anchor (so anchors like endif/end preserve their
+         * own diagnostics). */
         if (idx < tokens.size && sp >= 2) {
             int stackTop = stack[sp - 1].sym;
             if (stackTop == (int)TK_ASSIGNOP &&
                 tokens.buf[idx].type != TK_ASSIGNOP) {
-                /* skip token garbage before the closing ; */
-                while (idx < tokens.size &&
-                       tokens.buf[idx].type != TK_SEM &&
-                       tokens.buf[idx].type != TK_EOF)
-                    idx++;
-                /* pop TK_ASSIGNOP off the stack (no error reported) */
-                sp--;
-                /* if arithmeticExpression is now on top, pop it too */
-                if (sp > 0 && stack[sp-1].sym == -(NT_ARITHMETIC_EXPRESSION + 1))
+                /* Emit diagnostic at the current lookahead line so the
+                 * missing-semicolon is reported at the correct source line. */
+                if (prevLine != tokens.buf[idx].lineNo) {
+                    fprintf(stderr,
+                        "Line %u\tError: Missing TK_SEM after assignment or incomplete assignment RHS\n",
+                        tokens.buf[idx].lineNo);
+                    syntaxErrors++;
+                    prevLine = tokens.buf[idx].lineNo;
+                }
+
+                /* If lookahead is an anchor token leaving a scope, do not
+                 * skip it here — allow PT_SYNCH/stack-driven recovery to
+                 * handle popping the nonterminal so the anchor's own
+                 * diagnostics (if any) are preserved. */
+                TokenType lt = tokens.buf[idx].type;
+                if (lt == TK_ENDIF || lt == TK_END || lt == TK_ELSE || lt == TK_EOF) {
+                    /* Do not consume or pop; let outer recovery handle it */
+                } else {
+                    /* Safe to skip to semicolon; consume tokens until ; */
+                    while (idx < tokens.size &&
+                           tokens.buf[idx].type != TK_SEM &&
+                           tokens.buf[idx].type != TK_EOF)
+                        idx++;
+                    /* Pop TK_ASSIGNOP off the stack (we already reported) */
                     sp--;
-                /* TK_SEM now matches the TK_SEM waiting on the stack */
+                    /* if arithmeticExpression is now on top, pop it too */
+                    if (sp > 0 && stack[sp-1].sym == -(NT_ARITHMETIC_EXPRESSION + 1))
+                        sp--;
+                    /* If we stopped at a semicolon, consume it so normal
+                     * terminal matching can continue. */
+                    if (idx < tokens.size && tokens.buf[idx].type == TK_SEM)
+                        idx++;
+                }
             }
         }
         if (idx >= tokens.size) break;
@@ -622,26 +647,17 @@ ParseTree *parseInputSourceCode(const char *testcaseFile, Grammar *G,
                      * that legitimately expects endif).  If TK_ENDIF is nowhere
                      * on the stack, endif is in the wrong scope — report it. */
                     if (nt == NT_OTHER_STMTS && cur.type == TK_ENDIF) {
-                        int endifOnStack = 0;
-                        for (int si = sp - 1; si >= 0; si--) {
-                            /* TK_ENDIF terminal already pushed (elsePart expanded) */
-                            if (stack[si].sym == (int)TK_ENDIF) {
-                                endifOnStack = 1; break;
-                            }
-                            /* elsePart NT not yet expanded — it will produce TK_ENDIF */
-                            if (stack[si].sym == -(NT_ELSE_PART + 1)) {
-                                endifOnStack = 1; break;
-                            }
-                        }
-                        if (!endifOnStack) {
-                            fprintf(stderr,
-                                "Line %u\tError: Invalid token %s encountered"
-                                " with value %s stack top %s\n",
-                                cur.lineNo,
-                                tokenTypeName(cur.type), cur.lexeme,
-                                nonTerminalName(nt));
-                            syntaxErrors++;
-                        }
+                        /* Report an explicit invalid-token error for endif
+                         * encountered where otherStmts was expected. This
+                         * ensures the endif line is reported rather than
+                         * silently treated as closing an outer scope. */
+                        fprintf(stderr,
+                            "Line %u\tError: Invalid token %s encountered"
+                            " with value %s stack top %s\n",
+                            cur.lineNo,
+                            tokenTypeName(cur.type), cur.lexeme,
+                            nonTerminalName(nt));
+                        syntaxErrors++;
                     }
                     /* epsilon – nothing to push */
                 } else {

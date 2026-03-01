@@ -1,0 +1,8 @@
+lexeme     lineno tokenName       value      parentNode  leaf nodeSymbol
+-------------------------------------------------------------------
+----       0     NONTERMINAL                program      no  otherFunctions
+_main      5     TK_MAIN                    mainFunction yes ----
+----       0     NONTERMINAL                mainFunction no  stmts
+           5     TK_END                     mainFunction yes ----
+----       0     NONTERMINAL                program      no  mainFunction
+----       0     NONTERMINAL                ROOT         no  program
