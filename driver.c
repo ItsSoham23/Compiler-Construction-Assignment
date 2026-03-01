@@ -1,3 +1,11 @@
+/*
+Group 1
+Romit Jain - 2023A7PS0021P
+Soham Vinay Deshmukh - 2023A7PS0025P
+Nishant Amarish Pradhan - 2023A7PS0030P
+Devesh Saraogi - 2023A7PS0242P
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,8 +45,8 @@ int main(int argc, char* argv[]) {
 
              case 1:
                 printf("\n========== Option 1: Removing Comments ==========\n");
-                removeComments((char*)testcaseFile, "clean_driver.txt");
-                printf("\nOutput also written to: clean_driver.txt\n");
+                removeComments((char*)testcaseFile, "removedComments.txt");
+                printf("\nOutput also written to: removedComments.txt\n");
                 break;
 
             case 2:
