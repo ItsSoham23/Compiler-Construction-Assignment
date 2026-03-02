@@ -590,7 +590,7 @@ TokenList scan(State *s){
                     continue;
                 }
 
-                if(next == 'E' || next == 'e'){
+                if(next == 'E'){
                     isReal = 1;
                     lexeme[len++] = (char)readChar(s);
                     int sign = peekChar(s);
