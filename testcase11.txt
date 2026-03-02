@@ -1,0 +1,67 @@
+% Nested Record Version – Grammar Compliant
+
+_readMarks input parameter list [int b1]
+output parameter list [record #Marks m1]
+
+    read(m.inner.maths);
+    read(m.inner.physics);
+    read(m.inner.chemistry);
+    return [m];
+
+end
+
+
+_main
+
+    % ---------- type definitions ----------
+
+    record #Subject
+        type real : maths;
+        type real : physics;
+        type real : chemistry;
+    endrecord
+
+    definetype record #Subject as #SubAlias
+
+    record #Marks
+        type int : roll;
+        type #SubAlias : inner;
+    endrecord
+
+    % ---------- declarations ----------
+
+    type record #Marks : student;
+    type record #Marks : total;
+    type record #Marks : temp;
+
+    type int : counter;
+    type int : count;
+
+    % ---------- statements ----------
+
+    counter <--- 1;
+    read(count);
+
+    total.inner.maths <--- 0.00;
+    total.inner.physics <--- 0.00;
+    total.inner.chemistry <--- 0.00;
+
+    while (counter <= count)
+
+        [temp] <--- call _readMarks with parameters [counter];
+
+        total <--- total + temp;
+
+        counter <--- counter + 1;
+
+    endwhile
+
+    student <--- total / count;
+
+    write(student.inner.maths);
+    write(student.inner.physics);
+    write(student.inner.chemistry);
+
+    return;
+
+end

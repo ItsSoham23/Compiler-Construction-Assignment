@@ -1,0 +1,8 @@
+%This testcase is to check the error given by 123.abc as discussed in class
+
+_main
+	type int : b3;
+	b3 <--- 123.abc;
+	write(b3);
+	return;
+end
