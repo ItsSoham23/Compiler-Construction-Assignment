@@ -1,23 +1,9 @@
-%Test Case 9: Redeclaration check testcase
-%Expected: redeclaration error for variable b3 in _main scope
+%This testcase is to check the errors given by 123.123E+23
+%Here we are following the maximum matching principle and we are printing out all the correct tokens in lexical analysis but giving a parsing error.
 
-%Also testing if variable with same name in different local scopes give error.
-%Expected: It should compile successfully
-_test1 input parameter list [int x1];
-	type int : a1;
-	a1 <--- x1;
-	return;
-end
-
-_test2 input parameter list [int x2];
-	type int : a1;
-	a1 <--- x2;
-	return;
-end
 _main
 	type int : b3;
-	type int : b3;
-	b3 <--- 10;
+	b3 <--- 123.123E+23;
 	write(b3);
 	return;
 end

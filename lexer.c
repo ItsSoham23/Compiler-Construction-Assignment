@@ -348,6 +348,30 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
+            
+            /* Check if starts with uppercase letter - only valid in keywords */
+            if(len >= 1 && lexeme[0] >= 'A' && lexeme[0] <= 'Z'){
+                /* Try keyword lookup (case-insensitive) */
+                char lower[MAX_LEXEME_LEN];
+                for(int i = 0; i < len; i++) lower[i] = (char)tolower((unsigned char)lexeme[i]);
+                lower[len] = '\0';
+                TokenType kwType = lookupKeyword(&s->keywordMap, lower);
+                if(kwType != TK_ERROR){
+                    /* It's a keyword, allow it */
+                    emitToken(s, kwType, lexeme, len);
+                    continue;
+                } else {
+                    /* Uppercase letter not part of keyword - error */
+                    /* Emit just the first character as error, push back the rest */
+                    for(int i = len - 1; i > 0; i--){
+                        unreadChar(s, (unsigned char)lexeme[i]);
+                    }
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "Unknown Symbol %c", lexeme[0]);
+                    appendErrorToTokenList(s, buf);
+                    continue;
+                }
+            }
             /* If identifier is longer than 20 characters, report error and
                skip the rest of the alphanumeric sequence immediately.
                Exception: keep splittable mixed lexemes (letters+digits+letters...)
@@ -547,10 +571,11 @@ TokenList scan(State *s){
                 if(next == EOF) break;
 
                 if(next == '.' && !isReal){
-                    /* consume '.' and read fractional digits */
+                    /* consume '.' and read exactly 2 fractional digits */
                     lexeme[len++] = (char)readChar(s);
                     int fracDigits = 0;
-                    while(len < MAX_LEXEME_LEN - 1){
+                    /* Read exactly 2 fractional digits, leave any extra for next token */
+                    while(len < MAX_LEXEME_LEN - 1 && fracDigits < 2){
                         int pk = peekChar(s);
                         if(pk >= '0' && pk <= '9'){
                             lexeme[len++] = (char)readChar(s);
@@ -568,30 +593,39 @@ TokenList scan(State *s){
                         malformedReal = 1;
                         break;
                     }
-                    /* Real numbers must have exactly 2 fractional digits */
-                    if(fracDigits != 2){
+                    /* If less than 2 fractional digits, it's an error */
+                    if(fracDigits < 2){
                         lexeme[len] = '\0';
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
                         appendErrorToTokenList(s, buf);
-                        /* do not consume any further characters for this token */
+                        malformedReal = 1;
                         break;
                     }
+                    /* Now we have exactly 2 fractional digits - valid real number */
                     /* if another '.' follows, treat the prefix (e.g. 123.12) as unknown pattern */
                     if(peekChar(s) == '.'){
                         lexeme[len] = '\0';
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
                         appendErrorToTokenList(s, buf);
-                        /* do not consume the next '.' - let main loop handle it */
+                        malformedReal = 1;
                         break;
                     }
                     isReal = 1;
-                    continue;
+                    /* After fractional part, only check for exponent, don't read more plain digits */
+                    int nextChar = peekChar(s);
+                    if(nextChar == 'E'){
+                        /* Will be handled by next iteration - continue to exponent handling */
+                        continue;
+                    } else {
+                        /* No exponent, we're done - emit this real number token */
+                        break;
+                    }
                 }
 
-                if(next == 'E'){
-                    isReal = 1;
+                if(next == 'E' && isReal){
+                    /* Exponent notation only valid after decimal point */
                     lexeme[len++] = (char)readChar(s);
                     int sign = peekChar(s);
                     if(sign == '+' || sign == '-')

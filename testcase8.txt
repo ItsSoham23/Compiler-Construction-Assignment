@@ -1,119 +1,23 @@
-%Short test case. Compiles successfully
-%The purpose of this test case is to compare the CPU execution time between longer and shorter inputs. 
+%Test Case 8: Redeclaration check testcase
+%Expected: redeclaration error for variable b3 in _main scope
 
-
-
-_computeSum input parameter list [int b2c, int c3d]
-output parameter list [int d4e];
-type int : b5c;
-b5c <--- b2c + c3d;
-d4e <--- b5c + 10;
-return [d4e];
+%Also testing if variable with same name in different local scopes give error.
+%Expected: It should compile successfully
+_test1 input parameter list [int b2];
+	type int : d2;
+	b2 <--- b2;
+	return;
 end
 
-_processRecord input parameter list [record #finance b2d, record #finance c3b]
-output parameter list [record #finance d5c];
-
-record #temp
-type int: value;
-type real: rate;
-endrecord
-
-d5c <--- b2d + c3b;
-return [d5c];
+_test2 input parameter list [int c3];
+	type int : b4;
+	b4 <--- c3;
+	return;
 end
-
-_noReturn input parameter list [int b2c];
-type int : c3d;
-c3d <--- b2c + 5;
-write(c3d);
-return;
-end
-
 _main
-
-record #finance
-type int: amount;
-type real: interest;
-endrecord
-
-union #student
-type int: roll;
-type real: marks;
-endunion
-
-definetype union #student as #newstudent
-
-type int : b2c : global;
-type int : c3d;
-type int : d4b;
-type real : b3c;
-type real : c4d;
-type record #finance : b5d;
-type record #finance : c6b;
-type record #finance : d7c;
-type union #student : b4c;
-
-read(b2c);
-read(c3d);
-
-d4b <--- b2c + c3d;
-b3c <--- 23.45;
-c4d <--- 12.34E+05;
-
-if(b2c < c3d)
-then
-d4b <--- d4b + 1;
-else
-d4b <--- d4b - 1;
-endif
-
-while(b2c <= c3d)
-b2c <--- b2c + 1;
-write(b2c);
-endwhile
-
-[b2c] <--- call _computeSum with parameters [c3d, d4b];
-
-call _noReturn with parameters [b2c];
-
-b5d.amount <--- 100;
-b5d.interest <--- 45.67;
-
-c6b.amount <--- 200;
-c6b.interest <--- 12.34;
-
-d7c <--- b5d + c6b;
-
-write(d7c);
-
-[d7c] <--- call _processRecord with parameters [b5d, c6b];
-
-if((b2c < c3d) &&& (c3d != d4b))
-then
-write(b2c);
-else
-write(c3d);
-endif
-
-b2c <--- (b2c + c3d) * d4b;
-c3d <--- b2c / 2;
-
-b3c <--- (b3c * 2.00);
-c4d <--- b3c / 3.00;
-
-if(b2c >= c3d)
-then
-b2c <--- b2c - c3d;
-endif
-
-while((b2c < d4b) @@@ (c3d > 0))
-c3d <--- c3d - 1;
-write(c3d);
-endwhile
-
-b4c.roll <--- 10;
-write(b4c.roll);
-
-return;
+	type int : b3;
+	type int : b3;
+	b3 <--- 10;
+	write(b3);
+	return;
 end
