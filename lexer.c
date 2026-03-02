@@ -1,5 +1,5 @@
 /*
-Group 1
+Group 01
 Romit Jain - 2023A7PS0021P
 Soham Vinay Deshmukh - 2023A7PS0025P
 Nishant Amarish Pradhan - 2023A7PS0030P
@@ -91,6 +91,20 @@ static void appendErrorToTokenList(State *s, const char *msg){
     appendToTokenList(t, &s->tokenList);
 }
 
+static void appendErrorWithLexeme(State *s, const char *msg, const char *lexeme, size_t len){
+    Token t = newToken(TK_ERROR, s);
+    size_t need = strlen(msg) + 1;
+    t.errMsg = malloc(need);
+    if(t.errMsg) memcpy(t.errMsg, msg, need);
+    size_t copy = len;
+    if(copy >= MAX_LEXEME_LEN)
+        copy = MAX_LEXEME_LEN - 1;
+    memcpy(t.lexeme, lexeme, copy);
+    t.lexeme[copy] = '\0';
+    t.lexemeSize = copy;
+    appendToTokenList(t, &s->tokenList);
+}
+
 void printLexerError(const char *msg, State* s){
     appendErrorToTokenList(s, msg);
 }
@@ -162,6 +176,18 @@ static void emitToken(State *s, TokenType type, const char *lexeme, size_t len){
     appendToTokenList(token, &s->tokenList);
 }
 
+static void emitTokenSkipPrint(State *s, TokenType type, const char *lexeme, size_t len){
+    Token token = newToken(type, s);
+    size_t copy = len;
+    if(copy >= MAX_LEXEME_LEN)
+        copy = MAX_LEXEME_LEN - 1;
+    memcpy(token.lexeme, lexeme, copy);
+    token.lexeme[copy] = '\0';
+    token.lexemeSize = copy;
+    token.skipPrint = 1;
+    appendToTokenList(token, &s->tokenList);
+}
+
 static int isFieldId(const char *lexeme){
     if(!lexeme || !lexeme[0]) return 0;
     for(int i = 0; lexeme[i]; i++){
@@ -169,6 +195,36 @@ static int isFieldId(const char *lexeme){
             return 0;
     }
     return 1;
+}
+
+static int isValidVariableId(const char *lexeme){
+    /* Variable identifier pattern: [b-d][2-7][b-d]*[2-7]* */
+    if(!lexeme || !lexeme[0]) return 0;
+    
+    int len = strlen(lexeme);
+    if(len < 2) return 0;
+    
+    /* First character must be b, c, or d */
+    if(lexeme[0] != 'b' && lexeme[0] != 'c' && lexeme[0] != 'd')
+        return 0;
+    
+    /* Second character must be 2-7 */
+    if(lexeme[1] < '2' || lexeme[1] > '7')
+        return 0;
+    
+    /* Rest of the string: zero or more [b-d] followed by zero or more [2-7] */
+    int i = 2;
+    
+    /* Consume [b-d]* */
+    while(i < len && (lexeme[i] == 'b' || lexeme[i] == 'c' || lexeme[i] == 'd'))
+        i++;
+    
+    /* Consume [2-7]* */
+    while(i < len && (lexeme[i] >= '2' && lexeme[i] <= '7'))
+        i++;
+    
+    /* If we consumed the entire string, it's valid */
+    return (i == len);
 }
 
 /* ---------------- Token handling ---------------- */
@@ -180,6 +236,7 @@ Token newToken(TokenType type, State* s){
     t.lexemeSize = 0;
     t.lineNo = s->line;
     t.errMsg = NULL;
+    t.skipPrint = 0;
     return t;
 }
 
@@ -291,6 +348,30 @@ TokenList scan(State *s){
                 break;
             }
             lexeme[len] = '\0';
+            
+            /* Check if starts with uppercase letter - only valid in keywords */
+            if(len >= 1 && lexeme[0] >= 'A' && lexeme[0] <= 'Z'){
+                /* Try keyword lookup (case-insensitive) */
+                char lower[MAX_LEXEME_LEN];
+                for(int i = 0; i < len; i++) lower[i] = (char)tolower((unsigned char)lexeme[i]);
+                lower[len] = '\0';
+                TokenType kwType = lookupKeyword(&s->keywordMap, lower);
+                if(kwType != TK_ERROR){
+                    /* It's a keyword, allow it */
+                    emitToken(s, kwType, lexeme, len);
+                    continue;
+                } else {
+                    /* Uppercase letter not part of keyword - error */
+                    /* Emit just the first character as error, push back the rest */
+                    for(int i = len - 1; i > 0; i--){
+                        unreadChar(s, (unsigned char)lexeme[i]);
+                    }
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "Unknown Symbol %c", lexeme[0]);
+                    appendErrorToTokenList(s, buf);
+                    continue;
+                }
+            }
             /* If identifier is longer than 20 characters, report error and
                skip the rest of the alphanumeric sequence immediately.
                Exception: keep splittable mixed lexemes (letters+digits+letters...)
@@ -341,6 +422,13 @@ TokenList scan(State *s){
                 int hasAlphaAfter = 0;
                 for(int j = firstDigit; j < len; j++) if(isAlpha((unsigned char)lexeme[j])){ hasAlphaAfter = 1; break; }
                 if(hasAlphaAfter){
+                    if(!isValidVariableId(lexeme)){
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        emitTokenSkipPrint(s, TK_ID, lexeme, len);
+                        continue;
+                    }
                     emitToken(s, TK_ID, lexeme, len);
                     continue;
                 }
@@ -380,6 +468,13 @@ TokenList scan(State *s){
                         char combined[MAX_LEXEME_LEN];
                         int clen = llen + dlen;
                         memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        if(!isValidVariableId(combined)){
+                            char buf[256];
+                            snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", combined);
+                            appendErrorToTokenList(s, buf);
+                            emitTokenSkipPrint(s, TK_ID, combined, clen);
+                            continue;
+                        }
                         emitToken(s, TK_ID, combined, clen);
                         continue;
                     }
@@ -395,6 +490,13 @@ TokenList scan(State *s){
                         char combined[MAX_LEXEME_LEN];
                         int clen = llen + dlen;
                         memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        if(!isValidVariableId(combined)){
+                            char buf[256];
+                            snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", combined);
+                            appendErrorToTokenList(s, buf);
+                            emitTokenSkipPrint(s, TK_ID, combined, clen);
+                            continue;
+                        }
                         emitToken(s, TK_ID, combined, clen);
                         continue;
                     }
@@ -408,6 +510,13 @@ TokenList scan(State *s){
                     TokenType type = lookupKeyword(&s->keywordMap, lower);
                     if(type == TK_ERROR){
                         if(isFieldId(letters)) type = TK_FIELDID; else type = TK_ID;
+                    }
+                    if(type == TK_ID && !isValidVariableId(letters)){
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", letters);
+                        appendErrorToTokenList(s, buf);
+                        emitTokenSkipPrint(s, type, letters, llen);
+                        continue;
                     }
                     emitToken(s, type, letters, llen);
                     continue;
@@ -462,10 +571,11 @@ TokenList scan(State *s){
                 if(next == EOF) break;
 
                 if(next == '.' && !isReal){
-                    /* consume '.' and read fractional digits */
+                    /* consume '.' and read exactly 2 fractional digits */
                     lexeme[len++] = (char)readChar(s);
                     int fracDigits = 0;
-                    while(len < MAX_LEXEME_LEN - 1){
+                    /* Read exactly 2 fractional digits, leave any extra for next token */
+                    while(len < MAX_LEXEME_LEN - 1 && fracDigits < 2){
                         int pk = peekChar(s);
                         if(pk >= '0' && pk <= '9'){
                             lexeme[len++] = (char)readChar(s);
@@ -483,37 +593,45 @@ TokenList scan(State *s){
                         malformedReal = 1;
                         break;
                     }
-                    /* If fractional part has exactly one digit, treat as Unknown pattern */
-                    if(fracDigits == 1){
+                    /* If less than 2 fractional digits, it's an error */
+                    if(fracDigits < 2){
                         lexeme[len] = '\0';
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
                         appendErrorToTokenList(s, buf);
-                        /* do not consume any further characters for this token */
+                        malformedReal = 1;
                         break;
                     }
-                    /* if another '.' follows, treat the prefix (e.g. 123.5) as unknown pattern */
+                    /* Now we have exactly 2 fractional digits - valid real number */
+                    /* if another '.' follows, treat the prefix (e.g. 123.12) as unknown pattern */
                     if(peekChar(s) == '.'){
                         lexeme[len] = '\0';
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
                         appendErrorToTokenList(s, buf);
-                        /* do not consume the next '.' - let main loop handle it */
+                        malformedReal = 1;
                         break;
                     }
                     isReal = 1;
-                    continue;
+                    /* After fractional part, only check for exponent, don't read more plain digits */
+                    int nextChar = peekChar(s);
+                    if(nextChar == 'E'){
+                        /* Will be handled by next iteration - continue to exponent handling */
+                        continue;
+                    } else {
+                        /* No exponent, we're done - emit this real number token */
+                        break;
+                    }
                 }
 
-                if(next == 'E' || next == 'e'){
-                    isReal = 1;
+                if(next == 'E' && isReal){
+                    /* Exponent notation only valid after decimal point */
                     lexeme[len++] = (char)readChar(s);
                     int sign = peekChar(s);
                     if(sign == '+' || sign == '-')
                         lexeme[len++] = (char)readChar(s);
                     int digitsRead = 0;
-                    /* Read at most two exponent digits into the lexeme; leave any
-                       further digits unread so they form subsequent tokens. */
+                    /* Read exactly two exponent digits as per spec */
                     while(len < MAX_LEXEME_LEN - 1){
                         int digit = peekChar(s);
                         if(digit >= '0' && digit <= '9'){
@@ -527,8 +645,14 @@ TokenList scan(State *s){
                         }
                         break;
                     }
-                    if(digitsRead == 0)
-                        printLexerError("malformed exponent", s);
+                    if(digitsRead != 2){
+                        /* Exponent must have exactly 2 digits */
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        malformedReal = 1;
+                    }
                     /* after reading exponent digits, stop numeric scanning so
                        any extra digits remain for the next token */
                     break;

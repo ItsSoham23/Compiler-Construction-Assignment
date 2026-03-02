@@ -1,5 +1,5 @@
 /*
-Group 1
+Group 01
 Romit Jain - 2023A7PS0021P
 Soham Vinay Deshmukh - 2023A7PS0025P
 Nishant Amarish Pradhan - 2023A7PS0030P
@@ -90,6 +90,7 @@ typedef struct Token{
     unsigned int lexemeSize;
     unsigned int lineNo;
     char *errMsg;
+    int skipPrint; /* Set to 1 to skip printing this token (but still use for parsing) */
 } Token;
 
 /* Aliases used by the driver and getNextToken API */

@@ -1,5 +1,5 @@
 /*
-Group 1
+Group 01
 Romit Jain - 2023A7PS0021P
 Soham Vinay Deshmukh - 2023A7PS0025P
 Nishant Amarish Pradhan - 2023A7PS0030P
@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
                                        tk.lineNo,
                                        tk.errMsg ? tk.errMsg : tk.lexeme);
                                 errorCount++;
-                            } else {
+                            } else if (!tk.skipPrint) {
                                 printf("Line %-4u  Lexeme: %-24s  Token: %s\n",
                                        tk.lineNo,
                                        tk.lexeme,
