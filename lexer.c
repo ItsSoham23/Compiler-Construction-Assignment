@@ -568,8 +568,8 @@ TokenList scan(State *s){
                         malformedReal = 1;
                         break;
                     }
-                    /* If fractional part has exactly one digit, treat as Unknown pattern */
-                    if(fracDigits == 1){
+                    /* Real numbers must have exactly 2 fractional digits */
+                    if(fracDigits != 2){
                         lexeme[len] = '\0';
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
@@ -577,7 +577,7 @@ TokenList scan(State *s){
                         /* do not consume any further characters for this token */
                         break;
                     }
-                    /* if another '.' follows, treat the prefix (e.g. 123.5) as unknown pattern */
+                    /* if another '.' follows, treat the prefix (e.g. 123.12) as unknown pattern */
                     if(peekChar(s) == '.'){
                         lexeme[len] = '\0';
                         char buf[128];
@@ -597,8 +597,7 @@ TokenList scan(State *s){
                     if(sign == '+' || sign == '-')
                         lexeme[len++] = (char)readChar(s);
                     int digitsRead = 0;
-                    /* Read at most two exponent digits into the lexeme; leave any
-                       further digits unread so they form subsequent tokens. */
+                    /* Read exactly two exponent digits as per spec */
                     while(len < MAX_LEXEME_LEN - 1){
                         int digit = peekChar(s);
                         if(digit >= '0' && digit <= '9'){
@@ -612,8 +611,14 @@ TokenList scan(State *s){
                         }
                         break;
                     }
-                    if(digitsRead == 0)
-                        printLexerError("malformed exponent", s);
+                    if(digitsRead != 2){
+                        /* Exponent must have exactly 2 digits */
+                        lexeme[len] = '\0';
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "Unknown pattern <%s>", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        malformedReal = 1;
+                    }
                     /* after reading exponent digits, stop numeric scanning so
                        any extra digits remain for the next token */
                     break;

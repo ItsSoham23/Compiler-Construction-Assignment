@@ -2,7 +2,7 @@
 
 _main
 	type int : b3;
-	b3 <--- 123.abc;
+	b3 <--- 123.12E23;
 	write(b3);
 	return;
 end
