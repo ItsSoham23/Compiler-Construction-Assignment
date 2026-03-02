@@ -1,66 +1,120 @@
-_computeSum input parameter list [int b2c, int c3d]
-output parameter list [int d4e];
-type int : b5c;
-b5c <--- b2c + c3d;
-d4e <--- b5c + 10;
-return [d4e];
+%This test case is around 200 lines long, and compiles successfully.
+%The purpose of this test case is to compare the CPU execution time between longer and shorter inputs. 
+
+_alpha input parameter list [int b2c, int c3d, int d4b]
+output parameter list [int b5c, int c6d];
+
+type int : d5b;
+type int : d6c;
+
+d5b <--- b2c + c3d;
+d6c <--- d5b * d4b;
+
+b5c <--- d6c + 100;
+c6d <--- b5c - 50;
+
+return [b5c, c6d];
 end
 
-_processRecord input parameter list [record #finance b2d, record #finance c3b]
-output parameter list [record #finance d5c];
 
-record #temp
-type int: value;
-type real: rate;
-endrecord
+_beta input parameter list [real b3c, real c4d]
+output parameter list [real d5e];
 
-d5c <--- b2d + c3b;
-return [d5c];
+type real : b6c;
+type real : c7d;
+
+b6c <--- b3c * 2.00;
+c7d <--- b6c / 3.00;
+
+d5e <--- (b6c + c7d) * 4.00;
+
+return [d5e];
 end
 
-_noReturn input parameter list [int b2c];
+
+_gamma input parameter list [record #ledger b2d, record #ledger c3b]
+output parameter list [record #ledger d4c];
+
+d4c <--- b2d + c3b;
+
+return [d4c];
+end
+
+
+_delta input parameter list [int b2c];
 type int : c3d;
-c3d <--- b2c + 5;
-write(c3d);
+type int : d4b;
+
+c3d <--- b2c + 1;
+d4b <--- c3d * 2;
+
+write(d4b);
+
 return;
 end
 
+
+
 _main
 
-record #finance
-type int: amount;
-type real: interest;
+record #ledger
+type int: debit;
+type real: credit;
 endrecord
 
-union #student
-type int: roll;
-type real: marks;
+union #data
+type int: id;
+type real: value;
 endunion
 
-definetype union #student as #newstudent
+definetype union #data as #newdata
 
 type int : b2c : global;
 type int : c3d;
 type int : d4b;
+type int : b5c;
+type int : c6d;
+type int : d7b;
+
 type real : b3c;
 type real : c4d;
-type record #finance : b5d;
-type record #finance : c6b;
-type record #finance : d7c;
-type union #student : b4c;
+type real : d5e;
+
+type record #ledger : b2d;
+type record #ledger : c3b;
+type record #ledger : d4c;
+
+type union #data : b6c;
 
 read(b2c);
 read(c3d);
+read(d4b);
 
-d4b <--- b2c + c3d;
-b3c <--- 23.45;
-c4d <--- 12.34E+05;
+b5c <--- b2c + c3d;
+c6d <--- (b5c * d4b);
+d7b <--- (c6d - b2c);
+
+b3c <--- 12.34;
+c4d <--- 45.67;
+d5e <--- 23.45E+05;
 
 if(b2c < c3d)
 then
-d4b <--- d4b + 1;
+b5c <--- b5c + 1;
 else
-d4b <--- d4b - 1;
+b5c <--- b5c - 1;
+endif
+
+if((b2c < c3d) &&& (c3d != d4b))
+then
+if(d4b >= b5c)
+then
+d7b <--- d7b + 10;
+else
+d7b <--- d7b - 10;
+endif
+else
+c6d <--- c6d + 5;
 endif
 
 while(b2c <= c3d)
@@ -68,47 +122,84 @@ b2c <--- b2c + 1;
 write(b2c);
 endwhile
 
-[b2c] <--- call _computeSum with parameters [c3d, d4b];
-
-call _noReturn with parameters [b2c];
-
-b5d.amount <--- 100;
-b5d.interest <--- 45.67;
-
-c6b.amount <--- 200;
-c6b.interest <--- 12.34;
-
-d7c <--- b5d + c6b;
-
-write(d7c);
-
-[d7c] <--- call _processRecord with parameters [b5d, c6b];
-
-if((b2c < c3d) &&& (c3d != d4b))
-then
-write(b2c);
-else
+while((b2c < d4b) @@@ (c3d > 0))
+c3d <--- c3d - 1;
 write(c3d);
+endwhile
+
+while(~(b2c == d4b))
+b2c <--- b2c + 2;
+endwhile
+
+[b5c, c6d] <--- call _alpha with parameters [b2c, c3d, d4b];
+
+[d5e] <--- call _beta with parameters [b3c, c4d];
+
+call _delta with parameters [b2c];
+
+b2d.debit <--- 100;
+b2d.credit <--- 10.50;
+
+c3b.debit <--- 200;
+c3b.credit <--- 20.75;
+
+d4c <--- b2d + c3b;
+
+[d4c] <--- call _gamma with parameters [b2d, c3b];
+
+write(d4c);
+
+b6c.id <--- 10;
+write(b6c.id);
+
+b5c <--- ( (b2c + c3d) * (d4b - b5c) );
+c6d <--- ( b5c / (d7b + 1) );
+
+b5c <--- ( ( (b2c + 3) * 4 ) - ( (c3d * 2) / 5 ) );
+
+if((b2c < c3d) &&& ((d4b > b5c) @@@ (c6d != d7b)))
+then
+b5c <--- b5c + 100;
+else
+b5c <--- b5c - 100;
 endif
 
-b2c <--- (b2c + c3d) * d4b;
-c3d <--- b2c / 2;
-
-b3c <--- (b3c * 2.00);
-c4d <--- b3c / 3.00;
+while((b2c < 100) &&& (c3d < 200))
+b2c <--- b2c + 5;
+c3d <--- c3d + 3;
+write(b2c);
+write(c3d);
+endwhile
 
 if(b2c >= c3d)
 then
 b2c <--- b2c - c3d;
 endif
 
-while((b2c < d4b) @@@ (c3d > 0))
-c3d <--- c3d - 1;
-write(c3d);
-endwhile
+if(~(b2c < d4b))
+then
+d4b <--- d4b + 1;
+else
+d4b <--- d4b - 1;
+endif
 
-b4c.roll <--- 10;
-write(b4c.roll);
+b5c <--- b5c + c6d;
+c6d <--- b5c - d7b;
+d7b <--- c6d * 2;
+
+b5c <--- b5c / 2;
+c6d <--- c6d / 3;
+
+b3c <--- b3c + 1.00;
+c4d <--- c4d * 2.00;
+d5e <--- c4d / 5.00;
+
+write(b5c);
+write(c6d);
+write(d7b);
+write(b3c);
+write(c4d);
+write(d5e);
 
 return;
 end

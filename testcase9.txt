@@ -1,6 +1,8 @@
 %Test Case 9: Redeclaration check testcase
 %Expected: redeclaration error for variable b3 in _main scope
 
+%Also testing if variable with same name in different local scopes give error.
+%Expected: It should compile successfully
 _test1 input parameter list [int x1];
 	type int : a1;
 	a1 <--- x1;
