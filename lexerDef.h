@@ -90,6 +90,7 @@ typedef struct Token{
     unsigned int lexemeSize;
     unsigned int lineNo;
     char *errMsg;
+    int skipPrint; /* Set to 1 to skip printing this token (but still use for parsing) */
 } Token;
 
 /* Aliases used by the driver and getNextToken API */

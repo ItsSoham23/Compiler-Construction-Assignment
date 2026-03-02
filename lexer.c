@@ -91,6 +91,20 @@ static void appendErrorToTokenList(State *s, const char *msg){
     appendToTokenList(t, &s->tokenList);
 }
 
+static void appendErrorWithLexeme(State *s, const char *msg, const char *lexeme, size_t len){
+    Token t = newToken(TK_ERROR, s);
+    size_t need = strlen(msg) + 1;
+    t.errMsg = malloc(need);
+    if(t.errMsg) memcpy(t.errMsg, msg, need);
+    size_t copy = len;
+    if(copy >= MAX_LEXEME_LEN)
+        copy = MAX_LEXEME_LEN - 1;
+    memcpy(t.lexeme, lexeme, copy);
+    t.lexeme[copy] = '\0';
+    t.lexemeSize = copy;
+    appendToTokenList(t, &s->tokenList);
+}
+
 void printLexerError(const char *msg, State* s){
     appendErrorToTokenList(s, msg);
 }
@@ -162,6 +176,18 @@ static void emitToken(State *s, TokenType type, const char *lexeme, size_t len){
     appendToTokenList(token, &s->tokenList);
 }
 
+static void emitTokenSkipPrint(State *s, TokenType type, const char *lexeme, size_t len){
+    Token token = newToken(type, s);
+    size_t copy = len;
+    if(copy >= MAX_LEXEME_LEN)
+        copy = MAX_LEXEME_LEN - 1;
+    memcpy(token.lexeme, lexeme, copy);
+    token.lexeme[copy] = '\0';
+    token.lexemeSize = copy;
+    token.skipPrint = 1;
+    appendToTokenList(token, &s->tokenList);
+}
+
 static int isFieldId(const char *lexeme){
     if(!lexeme || !lexeme[0]) return 0;
     for(int i = 0; lexeme[i]; i++){
@@ -169,6 +195,36 @@ static int isFieldId(const char *lexeme){
             return 0;
     }
     return 1;
+}
+
+static int isValidVariableId(const char *lexeme){
+    /* Variable identifier pattern: [b-d][2-7][b-d]*[2-7]* */
+    if(!lexeme || !lexeme[0]) return 0;
+    
+    int len = strlen(lexeme);
+    if(len < 2) return 0;
+    
+    /* First character must be b, c, or d */
+    if(lexeme[0] != 'b' && lexeme[0] != 'c' && lexeme[0] != 'd')
+        return 0;
+    
+    /* Second character must be 2-7 */
+    if(lexeme[1] < '2' || lexeme[1] > '7')
+        return 0;
+    
+    /* Rest of the string: zero or more [b-d] followed by zero or more [2-7] */
+    int i = 2;
+    
+    /* Consume [b-d]* */
+    while(i < len && (lexeme[i] == 'b' || lexeme[i] == 'c' || lexeme[i] == 'd'))
+        i++;
+    
+    /* Consume [2-7]* */
+    while(i < len && (lexeme[i] >= '2' && lexeme[i] <= '7'))
+        i++;
+    
+    /* If we consumed the entire string, it's valid */
+    return (i == len);
 }
 
 /* ---------------- Token handling ---------------- */
@@ -180,6 +236,7 @@ Token newToken(TokenType type, State* s){
     t.lexemeSize = 0;
     t.lineNo = s->line;
     t.errMsg = NULL;
+    t.skipPrint = 0;
     return t;
 }
 
@@ -341,6 +398,13 @@ TokenList scan(State *s){
                 int hasAlphaAfter = 0;
                 for(int j = firstDigit; j < len; j++) if(isAlpha((unsigned char)lexeme[j])){ hasAlphaAfter = 1; break; }
                 if(hasAlphaAfter){
+                    if(!isValidVariableId(lexeme)){
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", lexeme);
+                        appendErrorToTokenList(s, buf);
+                        emitTokenSkipPrint(s, TK_ID, lexeme, len);
+                        continue;
+                    }
                     emitToken(s, TK_ID, lexeme, len);
                     continue;
                 }
@@ -380,6 +444,13 @@ TokenList scan(State *s){
                         char combined[MAX_LEXEME_LEN];
                         int clen = llen + dlen;
                         memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        if(!isValidVariableId(combined)){
+                            char buf[256];
+                            snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", combined);
+                            appendErrorToTokenList(s, buf);
+                            emitTokenSkipPrint(s, TK_ID, combined, clen);
+                            continue;
+                        }
                         emitToken(s, TK_ID, combined, clen);
                         continue;
                     }
@@ -395,6 +466,13 @@ TokenList scan(State *s){
                         char combined[MAX_LEXEME_LEN];
                         int clen = llen + dlen;
                         memcpy(combined, lexeme + lstart, clen); combined[clen] = '\0';
+                        if(!isValidVariableId(combined)){
+                            char buf[256];
+                            snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", combined);
+                            appendErrorToTokenList(s, buf);
+                            emitTokenSkipPrint(s, TK_ID, combined, clen);
+                            continue;
+                        }
                         emitToken(s, TK_ID, combined, clen);
                         continue;
                     }
@@ -408,6 +486,13 @@ TokenList scan(State *s){
                     TokenType type = lookupKeyword(&s->keywordMap, lower);
                     if(type == TK_ERROR){
                         if(isFieldId(letters)) type = TK_FIELDID; else type = TK_ID;
+                    }
+                    if(type == TK_ID && !isValidVariableId(letters)){
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "Invalid variable identifier <%s>. Must match pattern [b-d][2-7][b-d]*[2-7]*", letters);
+                        appendErrorToTokenList(s, buf);
+                        emitTokenSkipPrint(s, type, letters, llen);
+                        continue;
                     }
                     emitToken(s, type, letters, llen);
                     continue;
